@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Resume | David Herron</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f7f4;
+            color: #3d4f60;
+        }
+        .nav-link {
+            position: relative;
+            transition: color 0.3s;
+        }
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #4a90e2;
+            transition: width 0.3s ease-in-out;
+        }
+        .nav-link.active::after,
+        .nav-link:hover::after {
+            width: 100%;
+        }
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -20px;
+            top: 10px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background-color: #ffffff;
+            border: 3px solid #4a90e2;
+            z-index: 1;
+        }
+        .timeline-path {
+            position: absolute;
+            left: -15px;
+            top: 10px;
+            bottom: -10px;
+            width: 3px;
+            background-color: #e0e6ed;
+            z-index: 0;
+        }
+        .kpi-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .kpi-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.08);
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 400px;
+            max-height: 50vh;
+        }
+        @media (max-width: 768px) {
+            .chart-container {
+                height: 300px;
+                max-height: 60vh;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Header & Navigation -->
+    <header class="bg-white/80 backdrop-blur-lg sticky top-0 z-50 shadow-sm">
+        <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <div class="text-xl font-bold text-gray-800">David Herron</div>
+            <div class="hidden md:flex items-center space-x-8">
+                <a href="#dashboard" class="nav-link text-gray-600 hover:text-gray-900 font-medium">Dashboard</a>
+                <a href="#timeline" class="nav-link text-gray-600 hover:text-gray-900 font-medium">Career Timeline</a>
+                <a href="#competencies" class="nav-link text-gray-600 hover:text-gray-900 font-medium">Competencies</a>
+            </div>
+             <a href="mailto:leadershipwithherron@gmail.com" class="hidden md:block bg-[#4a90e2] text-white px-4 py-2 rounded-lg hover:bg-[#357abd] transition-colors">Contact Me</a>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-6 py-12 md:py-20">
+
+        <!-- Hero Section -->
+        <section class="text-center mb-20 md:mb-32">
+            <img src="./headshot.jpg" alt="David Herron Headshot" class="w-32 h-32 rounded-full mx-auto mb-6 shadow-lg object-cover">
+            <h1 class="text-4xl md:text-6xl font-bold text-gray-800 mb-4 leading-tight">AI-Driven Operations &amp; Customer Delivery Leader</h1>
+            <p class="text-lg md:text-xl text-gray-600 max-w-3xl mx-auto">
+                Transforming global support organizations by architecting scalable, data-driven processes and leveraging AI to deliver exceptional customer experiences.
+            </p>
+        </section>
+
+        <!-- KPI Dashboard Section -->
+        <section id="dashboard" class="mb-20 md:mb-32">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold text-gray-800">Impact Dashboard</h2>
+                <p class="mt-2 text-lg text-gray-600">This dashboard provides a high-level overview of key performance indicators and quantified achievements. These metrics represent the tangible business impact of strategic initiatives in operational efficiency, automation, and team development. Click on any card for context or explore the chart below for a visual comparison.</p>
+            </div>
+            
+            <div id="kpi-container" class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+            </div>
+
+            <div id="kpi-details" class="bg-white p-8 rounded-2xl shadow-lg min-h-[100px] flex items-center justify-center text-center transition-all duration-500">
+                <p class="text-gray-600 text-lg">Click on a card above to see details about the achievement.</p>
+            </div>
+
+            <div class="mt-20">
+                <div class="chart-container">
+                    <canvas id="impactChart"></canvas>
+                </div>
+                 <p class="text-center mt-4 text-gray-500">Hover over the bars for more information on each key achievement.</p>
+            </div>
+        </section>
+
+        <!-- Career Timeline Section -->
+        <section id="timeline" class="mb-20 md:mb-32">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl font-bold text-gray-800">Career Timeline</h2>
+                <p class="mt-2 text-lg text-gray-600">Explore my professional journey, from foundational technical roles to executive leadership. This timeline highlights the key responsibilities and accomplishments from each position. Click on any role to expand the details and understand the story of my career progression.</p>
+            </div>
+            <div class="flex flex-col md:flex-row gap-12">
+                <div id="timeline-nav" class="md:w-1/3">
+                </div>
+                <div class="md:w-2/3 bg-white p-8 rounded-2xl shadow-lg">
+                    <div id="timeline-details">
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Core Competencies Section -->
+        <section id="competencies">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold text-gray-800">Core Competencies</h2>
+                <p class="mt-2 text-lg text-gray-600">This section outlines the key skills and areas of expertise I bring to an organization. These competencies have been developed through years of hands-on experience in high-growth SaaS environments and are grouped into key themes of leadership, operations, and technology.</p>
+            </div>
+            <div id="skills-container" class="space-y-12">
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white mt-20 md:mt-32 border-t">
+        <div class="container mx-auto px-6 py-8 text-center text-gray-600">
+            <p class="text-xl font-bold text-gray-800 mb-2">David Herron</p>
+            <p>Let's connect and build something great together.</p>
+            <div class="flex justify-center space-x-6 mt-4">
+                <a href="mailto:leadershipwithherron@gmail.com" class="hover:text-[#4a90e2] transition-colors">leadershipwithherron@gmail.com</a>
+                <span>&bull;</span>
+                <a href="https://www.linkedin.com/in/david-herron-1794453" target="_blank" rel="noopener noreferrer" class="hover:text-[#4a90e2] transition-colors">LinkedIn</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            
+            const kpiData = [
+                { 
+                    value: '20%', 
+                    label: 'Reduction in Repetitive Workload', 
+                    details: 'Pioneered AI-driven support solutions, upskilling teams and driving significant automation, resulting in a 20% reduction in repetitive workload (TCR) and enabling support teams to focus on higher-value, complex challenges.' 
+                },
+                { 
+                    value: '25%', 
+                    label: 'Reduction in Critical Escalations', 
+                    details: 'Transformed a 3-tier support model, drastically improving issue resolution efficiency and reducing critical escalations by 25%, ensuring faster time-to-resolution and enhanced customer satisfaction across a global footprint.' 
+                },
+                { 
+                    value: '20%', 
+                    label: 'Increase in Tier 1/2 Resolution', 
+                    details: 'Designed and implemented training programs that elevated technical proficiency, increasing Tier 1 & 2 resolution rates by 20%, optimizing resource allocation and reducing reliance on higher tiers.' 
+                }
+            ];
+
+            const careerData = [
+                {
+                    company: 'RingCentral',
+                    role: 'Director of Technical Support',
+                    dates: 'April 2019 - Present',
+                    description: 'Lead strategic initiatives to optimize Tier 2 and Tier 3 support operations, enhance customer experience, and drive scalable technical excellence across a global team.',
+                    bullets: [
+                        'Championed AI-driven automation initiatives, reducing repetitive workload by 20% and empowering support teams to focus on complex problem-solving and higher-value tasks.',
+                        'Transformed the 3-tier support model, improving issue resolution efficiency and reducing critical escalations by 25%, significantly enhancing customer satisfaction.',
+                        'Built a dedicated Product Engineering Service Delivery team, strengthening collaboration between Support and Engineering for faster issue identification and resolution.',
+                        'Designed and implemented training programs that elevated technical proficiency, increasing Tier 1 & 2 resolution rates by 20%, optimizing resource allocation.',
+                        'Cultivated strong cross-functional partnerships with Product, Sales, and Engineering, aligning support strategies with business growth and ensuring a seamless customer journey.',
+                        'Provided executive-level reporting and insights on key support metrics, trends, and process optimizations to the Chief Customer Officer and leadership teams.'
+                    ]
+                },
+                {
+                    company: 'RingCentral',
+                    role: 'Tier 3 Support Senior Manager',
+                    dates: 'May 2013 - April 2019',
+                    description: 'Played a pivotal role in developing high-performing teams to support complex technical challenges, new product offerings including AI-driven solutions, and high-value enterprise customers.',
+                    bullets: [
+                        'Built and scaled specialized teams to support new product launches and enhance service for premium customers, ensuring a best-in-class support experience.',
+                        'Led resolution of intricate SIP, QoS, and network-related issues through deep analysis of internal logs and packet captures.',
+                        'Championed training initiatives across all support tiers, elevating technical proficiency and operational efficiency.',
+                        'Strengthened processes for identifying, escalating, and resolving product defects and operational outages, enhancing transparency and communication.',
+                        'Developed robust reporting frameworks to improve visibility into lower-tier support performance and drive data-backed decision-making.'
+                    ]
+                },
+                {
+                    company: 'Avaya',
+                    role: 'Backbone Engineer',
+                    dates: 'April 2008 - May 2013',
+                    description: 'Delivered top-tier technical support across a spectrum of Avaya Messaging Solutions, specializing in intricate technical challenges.',
+                    bullets: [
+                        'Proficiently acquired customer problem data, employing structured problem analysis and resolution techniques.',
+                        'Acted as a crucial liaison between customers and Avaya, conveying product quality, serviceability, and maintainability concerns to internal stakeholders.'
+                    ]
+                },
+                {
+                    company: 'Level 3 Communications',
+                    role: 'IP/MPLS Support Manager',
+                    dates: 'January 2005 - March 2008',
+                    description: 'Orchestrated comprehensive day-to-day operations for the Data Services repair center, driving operational excellence and customer satisfaction.',
+                     bullets: [
+                        'Directed end-to-end call center operations, devising and executing projects to align the team with critical customer contractual agreements.',
+                        'Developed and implemented comprehensive training programs for all technicians, equipping them with the skills needed to excel in their roles.'
+                    ]
+                },
+                {
+                    company: 'Broadwing Communications',
+                    role: 'Technical Project Manager',
+                    dates: 'February 2003 - January 2005',
+                    description: 'Seamlessly integrated into the account team within the repair center, leveraging expertise to expedite the swift resolution of challenges for premier clientele.',
+                    bullets: [
+                        'Adeptly tackled diverse operational challenges, including novel turn-ups, internal network maintenance, and various IT projects.',
+                        'Managed a dynamic spectrum of customer issues, spanning processes, repairs, and overall satisfaction.'
+                    ]
+                }
+            ];
+
+            const skillsData = [
+                {
+                    category: 'Strategic Leadership',
+                    skills: ['Global Team Leadership', 'Executive Presence & Board Presentations', 'Operational P&L Management', 'Cross-Functional Collaboration', 'Customer Experience (CX) Transformation']
+                },
+                {
+                    category: 'Operational Excellence',
+                    skills: ['Scalable Process Design', 'KPI Development & Reporting', 'Data-Driven Decision Making', 'Resource Planning & Allocation', 'SaaS Operations']
+                },
+                {
+                    category: 'Technical Innovation',
+                    skills: ['AI-Driven Transformation', 'Automation Strategy', 'Technical Support Leadership', 'New Product Introduction (NPI)', 'Salesforce, Zendesk, Gainsight (Conceptual Understanding)']
+                }
+            ];
+
+            // KPI Dashboard
+            const kpiContainer = document.getElementById('kpi-container');
+            const kpiDetails = document.getElementById('kpi-details');
+            kpiData.forEach((kpi, index) => {
+                const card = document.createElement('div');
+                card.className = 'kpi-card bg-white p-6 rounded-2xl shadow-lg cursor-pointer text-center';
+                card.innerHTML = `
+                    <p class="text-5xl font-bold text-[#4a90e2]">${kpi.value}</p>
+                    <p class="mt-2 text-lg font-medium text-gray-700">${kpi.label}</p>
+                `;
+                card.addEventListener('click', () => {
+                    kpiDetails.innerHTML = `<p class="text-gray-700 text-lg font-medium">${kpi.details}</p>`;
+                    document.querySelectorAll('.kpi-card').forEach(c => c.classList.remove('ring-2', 'ring-[#4a90e2]'));
+                    card.classList.add('ring-2', 'ring-[#4a90e2]');
+                });
+                kpiContainer.appendChild(card);
+            });
+
+            // Impact Chart
+            const ctx = document.getElementById('impactChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: kpiData.map(k => k.label.replace(/ /g, '\n')),
+                    datasets: [{
+                        label: 'Impact Metric',
+                        data: kpiData.map(k => parseFloat(k.value)),
+                        backgroundColor: 'rgba(74, 144, 226, 0.7)',
+                        borderColor: 'rgba(74, 144, 226, 1)',
+                        borderWidth: 1,
+                        borderRadius: 5,
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%'
+                                }
+                            }
+                        },
+                        y: {
+                           grid: {
+                                display: false
+                            },
+                            ticks: {
+                                autoSkip: false,
+                                font: {
+                                    size: 14
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: '#3d4f60',
+                            titleFont: {
+                                size: 16,
+                            },
+                            bodyFont: {
+                                size: 14,
+                            },
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.x !== null) {
+                                        label += context.parsed.x + '%';
+                                    }
+                                    return label;
+                                },
+                                afterBody: function(context) {
+                                    return kpiData[context[0].dataIndex].details;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Career Timeline
+            const timelineNav = document.getElementById('timeline-nav');
+            const timelineDetails = document.getElementById('timeline-details');
+
+            careerData.forEach((job, index) => {
+                const navItem = document.createElement('div');
+                navItem.className = 'timeline-item relative pl-8 pb-8 cursor-pointer';
+                if(index < careerData.length - 1) {
+                    navItem.innerHTML += '<div class="timeline-path"></div>';
+                }
+                navItem.innerHTML += `
+                    <h3 class="font-bold text-lg">${job.company}</h3>
+                    <p class="text-md text-gray-600">${job.role}</p>
+                    <p class="text-sm text-gray-500">${job.dates}</p>
+                `;
+                navItem.addEventListener('click', () => {
+                    updateTimelineDetails(index);
+                    document.querySelectorAll('.timeline-item').forEach(item => {
+                        item.querySelector('h3').classList.remove('text-[#4a90e2]');
+                    });
+                    navItem.querySelector('h3').classList.add('text-[#4a90e2]');
+                });
+                timelineNav.appendChild(navItem);
+            });
+
+            function updateTimelineDetails(index) {
+                const job = careerData[index];
+                timelineDetails.innerHTML = `
+                    <h3 class="text-2xl font-bold text-gray-800">${job.role}</h3>
+                    <p class="text-lg font-medium text-gray-600 mb-4">${job.company} | ${job.dates}</p>
+                    <p class="text-gray-600 mb-6">${job.description}</p>
+                    <ul class="space-y-3 list-disc list-inside text-gray-600">
+                        ${job.bullets.map(bullet => `<li>${bullet}</li>`).join('')}
+                    </ul>
+                `;
+            }
+            updateTimelineDetails(0);
+            timelineNav.querySelector('.timeline-item h3').classList.add('text-[#4a90e2]');
+
+            // Core Competencies
+            const skillsContainer = document.getElementById('skills-container');
+            skillsData.forEach(category => {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.innerHTML = `
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6">${category.category}</h3>
+                    <div class="flex flex-wrap gap-3">
+                        ${category.skills.map(skill => `
+                            <span class="bg-white text-gray-700 px-4 py-2 rounded-full shadow-md font-medium text-sm md:text-base hover:bg-gray-100 transition-colors">
+                                ${skill}
+                            </span>
+                        `).join('')}
+                    </div>
+                `;
+                skillsContainer.appendChild(categoryDiv);
+            });
+
+            // Smooth scrolling and active nav link
+            const navLinks = document.querySelectorAll('.nav-link');
+            const sections = document.querySelectorAll('section');
+
+            window.addEventListener('scroll', () => {
+                let current = '';
+                sections.forEach(section => {
+                    const sectionTop = section.offsetTop;
+                    if (pageYOffset >= sectionTop - 100) {
+                        current = section.getAttribute('id');
+                    }
+                });
+
+                navLinks.forEach(link => {
+                    link.classList.remove('active');
+                    if (link.getAttribute('href').includes(current)) {
+                        link.classList.add('active');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
