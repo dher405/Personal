@@ -18,16 +18,17 @@ export async function seed() {
   const biz = createBusiness(ownerId, "Riverside Music");
   run(
     `UPDATE businesses SET slug = 'riverside-music', category = 'Music lessons', description = ?, address = '12 River St, Hudson, NY',
-       phone = '(555) 010-2020', plan = 'pro', ai_enabled = 1, payment_provider = 'mock', require_payment = 1, payment_config = ? WHERE id = ?`,
+       phone = '(555) 010-2020', plan = 'pro', ai_enabled = 1, payment_provider = 'mock', require_payment = 1, payment_config = ?,
+       sms_enabled = 1, sms_admin_phone = '+15550102020', sms_agenda_hour = 7, sms_staff_reminder_min = 60 WHERE id = ?`,
     "Private piano, guitar and voice lessons for all ages.", encryptJson({}), biz.id,
   );
 
   const staff = [
-    { id: newId("stf"), name: "Alex Kim", bio: "Piano & music theory, 12 years teaching." },
-    { id: newId("stf"), name: "Sam Ortiz", bio: "Guitar and voice. Rock, folk and jazz." },
+    { id: newId("stf"), name: "Alex Kim", phone: "+15550103030", bio: "Piano & music theory, 12 years teaching." },
+    { id: newId("stf"), name: "Sam Ortiz", phone: "+15550104040", bio: "Guitar and voice. Rock, folk and jazz." },
   ];
   for (const s of staff) {
-    run("INSERT INTO staff (id, business_id, name, bio) VALUES (?,?,?,?)", s.id, biz.id, s.name, s.bio);
+    run("INSERT INTO staff (id, business_id, name, phone, bio) VALUES (?,?,?,?,?)", s.id, biz.id, s.name, s.phone, s.bio);
     for (const weekday of [1, 2, 3, 4, 5]) run("INSERT INTO availability_rules (id, staff_id, weekday, start_time, end_time) VALUES (?,?,?,?,?)", newId("avl"), s.id, weekday, "09:00", "17:00");
     run("INSERT INTO availability_rules (id, staff_id, weekday, start_time, end_time) VALUES (?,?,?,?,?)", newId("avl"), s.id, 6, "10:00", "14:00");
   }

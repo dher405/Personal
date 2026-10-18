@@ -121,6 +121,7 @@ const customerTools: AiTool[] = [
       customer_name: z.string().min(1),
       customer_email: z.email(),
       customer_phone: z.string().optional(),
+      sms_opt_in: z.boolean().optional().describe("True only if the customer explicitly agreed to text reminders/updates at customer_phone"),
       notes: z.string().optional(),
     }),
     run: async (input, ctx) => {
@@ -132,6 +133,7 @@ const customerTools: AiTool[] = [
         customer: { name: input.customer_name, email: input.customer_email, phone: input.customer_phone },
         notes: input.notes,
         source: "ai",
+        smsOptIn: input.sms_opt_in,
       }, actorFor(ctx));
       const serialized = serializeBooking(booking, { includeToken: true });
       let paymentUrl: string | undefined;

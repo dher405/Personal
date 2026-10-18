@@ -15,6 +15,7 @@ export function BookingPage() {
   const [staffId, setStaffId] = useState<string>("");
   const [slot, setSlot] = useState<Slot | null>(null);
   const [details, setDetails] = useState({ name: session?.user.name ?? "", email: session?.user.email ?? "", phone: "", notes: "" });
+  const [smsOptIn, setSmsOptIn] = useState(false);
   const [done, setDone] = useState<any>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const { busy, error: bookError, run } = useAction();
@@ -27,7 +28,10 @@ export function BookingPage() {
 
   const book = () => run(async () => {
     const res = await api(`/public/businesses/${slug}/bookings`, {
-      body: { serviceId, staffId: slot!.staffId, start: slot!.start, ...details, phone: details.phone || undefined, notes: details.notes || undefined },
+      body: {
+        serviceId, staffId: slot!.staffId, start: slot!.start, ...details,
+        phone: details.phone || undefined, notes: details.notes || undefined, smsOptIn: smsOptIn && !!details.phone,
+      },
     });
     if (res.paymentUrl) window.location.href = res.paymentUrl;
     else setDone(res.booking);
@@ -95,8 +99,14 @@ export function BookingPage() {
             <div className="form-grid">
               <label>Name<input required value={details.name} onChange={(e) => setDetails({ ...details, name: e.target.value })} /></label>
               <label>Email<input type="email" required value={details.email} onChange={(e) => setDetails({ ...details, email: e.target.value })} /></label>
-              <label>Phone (optional)<input value={details.phone} onChange={(e) => setDetails({ ...details, phone: e.target.value })} /></label>
+              <label>Phone {biz.smsEnabled ? "(for text reminders)" : "(optional)"}<input type="tel" value={details.phone} onChange={(e) => setDetails({ ...details, phone: e.target.value })} /></label>
             </div>
+            {biz.smsEnabled && (
+              <label className="inline small">
+                <input type="checkbox" checked={smsOptIn} disabled={!details.phone} onChange={(e) => setSmsOptIn(e.target.checked)} />
+                Text me my confirmation and reminders. I can reply to confirm, reschedule or cancel. Msg &amp; data rates may apply; reply STOP to opt out.
+              </label>
+            )}
             <label>Notes (optional)<textarea value={details.notes} onChange={(e) => setDetails({ ...details, notes: e.target.value })} /></label>
             <p className="small muted">Free cancellation up to {biz.cancellationHours}h before.</p>
             <button className="primary" disabled={busy}>

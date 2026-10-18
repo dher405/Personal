@@ -163,6 +163,61 @@ CREATE TABLE IF NOT EXISTS platform_settings (
 );
 `);
 
+// Columns added after the first release. CREATE TABLE IF NOT EXISTS won't add them to existing databases.
+function addColumn(table: string, column: string, definition: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+// --- SMS (reminders, alerts, two-way replies) ---
+addColumn("businesses", "sms_enabled", "INTEGER NOT NULL DEFAULT 0");
+addColumn("businesses", "sms_reminder_hours", "TEXT NOT NULL DEFAULT '24,2'");
+addColumn("businesses", "sms_admin_phone", "TEXT");
+addColumn("businesses", "sms_admin_alerts", "INTEGER NOT NULL DEFAULT 1");
+addColumn("businesses", "sms_agenda_hour", "INTEGER");
+addColumn("businesses", "sms_last_agenda_date", "TEXT");
+addColumn("businesses", "sms_staff_reminder_min", "INTEGER");
+addColumn("staff", "phone", "TEXT");
+addColumn("bookings", "sms_opt_in", "INTEGER NOT NULL DEFAULT 0");
+addColumn("bookings", "customer_confirmed_at", "TEXT");
+addColumn("bookings", "last_reminder_h", "INTEGER");
+addColumn("bookings", "staff_reminded", "INTEGER NOT NULL DEFAULT 0");
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS sms_messages (
+  id TEXT PRIMARY KEY,
+  business_id TEXT REFERENCES businesses(id) ON DELETE CASCADE,
+  booking_id TEXT REFERENCES bookings(id) ON DELETE SET NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('outbound','inbound')),
+  audience TEXT NOT NULL DEFAULT 'customer' CHECK (audience IN ('customer','admin','staff')),
+  kind TEXT NOT NULL,
+  to_phone TEXT NOT NULL,
+  from_phone TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  provider_sid TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sms_business ON sms_messages(business_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_sms_phone ON sms_messages(to_phone, created_at);
+
+-- Per-phone conversation state for two-way texting (e.g. "reply 1, 2 or 3").
+CREATE TABLE IF NOT EXISTS sms_conversations (
+  phone TEXT PRIMARY KEY,
+  business_id TEXT,
+  booking_id TEXT,
+  state TEXT NOT NULL DEFAULT '{}',
+  chat_session_id TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS sms_opt_outs (
+  phone TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
+
 export type Row = Record<string, any>;
 
 export function one<T = Row>(sql: string, ...params: any[]): T | undefined {

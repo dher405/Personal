@@ -53,10 +53,17 @@ export function Bookings() {
                   <td>{money(b.priceCents, b.currency)}
                     {paid.map((p: any) => <div key={p.id} className="small muted">paid {money(p.amount_cents, b.currency)}{p.refunded_cents ? `, refunded ${money(p.refunded_cents, b.currency)}` : ""}</div>)}
                   </td>
-                  <td><span className={`badge ${badge[b.status]}`}>{b.status.replace("_", " ")}</span></td>
+                  <td>
+                    <span className={`badge ${badge[b.status]}`}>{b.status.replace("_", " ")}</span>
+                    {b.customerConfirmedAt && b.status === "confirmed" && <div className="small" title="Customer confirmed attendance">✓ customer confirmed</div>}
+                    {b.smsOptIn && <div className="small muted">📱 texts on</div>}
+                  </td>
                   <td>
                     <div className="row">
                       <button onClick={() => setEditing(b)}>Edit / move</button>
+                      {b.status === "confirmed" && b.smsOptIn && biz.sms_enabled ? (
+                        <button onClick={() => action.run(async () => { await api(`/admin/${biz.id}/bookings/${b.id}/sms-reminder`, { method: "POST" }); reload(); })}>Text reminder</button>
+                      ) : null}
                       {b.status === "confirmed" && <button onClick={() => setStatus(b, "completed")}>Done</button>}
                       {b.status === "confirmed" && <button onClick={() => setStatus(b, "no_show")}>No-show</button>}
                       {b.status !== "cancelled" && <button className="danger" onClick={() => setStatus(b, "cancelled")}>Cancel</button>}
@@ -142,7 +149,7 @@ function NewBooking({ onClose }: { onClose: () => void }) {
   const { data: services } = useApi<any[]>(`/admin/${biz.id}/services`);
   const [serviceId, setServiceId] = useState("");
   const [slot, setSlot] = useState<Slot | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", price: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", price: "", smsOptIn: false });
   const action = useAction();
   const service = services?.find((s) => s.id === serviceId);
 
@@ -150,7 +157,7 @@ function NewBooking({ onClose }: { onClose: () => void }) {
     await api(`/admin/${biz.id}/bookings`, {
       body: {
         serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email,
-        phone: form.phone || undefined, priceCents: form.price ? toCents(form.price) : undefined,
+        phone: form.phone || undefined, priceCents: form.price ? toCents(form.price) : undefined, smsOptIn: form.smsOptIn && !!form.phone,
       },
     });
     onClose();
@@ -174,6 +181,9 @@ function NewBooking({ onClose }: { onClose: () => void }) {
           <label>Phone<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
           <label>Custom price<input type="number" step="0.01" placeholder={service ? (service.price_cents / 100).toFixed(2) : ""} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></label>
         </div>
+        {biz.sms_enabled ? (
+          <label className="inline small"><input type="checkbox" checked={form.smsOptIn} disabled={!form.phone} onChange={(e) => setForm({ ...form, smsOptIn: e.target.checked })} /> Customer agreed to text reminders</label>
+        ) : null}
         <div className="row"><button className="primary" disabled={!slot || !form.name || !form.email || action.busy} onClick={save}>Create booking</button><button onClick={onClose}>Cancel</button></div>
       </div>
     </div>

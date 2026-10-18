@@ -41,6 +41,11 @@ export function ManageBooking() {
             Complete payment
           </button>
         )}
+        {active && (b.customerConfirmedAt ? <span className="badge ok">You confirmed you'll be there</span> : (
+          <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { await api(`/public/manage/${token}/confirm`, { method: "POST", body: {} }); reload(); })}>
+            ✓ I'll be there
+          </button>
+        ))}
         {active && (
           <div className="row">
             <button onClick={() => setMoving(!moving)}>Reschedule</button>

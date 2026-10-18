@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DateTime } from "luxon";
 import { all, one } from "../db.js";
 import { findSlots } from "../lib/availability.js";
-import { cancelBooking, createBooking, rescheduleBooking, serializeBooking, startPayment } from "../lib/bookings.js";
+import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, serializeBooking, startPayment } from "../lib/bookings.js";
 import { forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { getPlan } from "../lib/plans.js";
@@ -32,6 +32,7 @@ publicRouter.get("/businesses/:slug", h((req) => {
     timezone: b.timezone, currency: b.currency, phone: b.phone, address: b.address,
     cancellationHours: b.cancellation_hours, requirePayment: !!b.require_payment && b.payment_provider !== "none",
     aiChat: aiChatEnabled(b),
+    smsEnabled: !!b.sms_enabled,
     services: all("SELECT id, name, description, category, duration_min, price_cents, deposit_cents FROM services WHERE business_id = ? AND active = 1 ORDER BY category, name", b.id),
     staff: all(
       `SELECT s.id, s.name, s.bio, GROUP_CONCAT(ss.service_id) AS service_ids FROM staff s
@@ -57,11 +58,12 @@ publicRouter.post("/businesses/:slug/bookings", rateLimit({ windowMs: 60_000, ma
     phone: z.string().optional(),
     notes: z.string().max(1000).optional(),
     source: z.enum(["web", "mobile"]).default("web"),
+    smsOptIn: z.boolean().optional(),
   }), req.body);
   const booking = createBooking({
     businessId: b.id, serviceId: body.serviceId, staffId: body.staffId, start: body.start,
     customer: { name: body.name, email: body.email, phone: body.phone },
-    customerId: req.user?.id, notes: body.notes, source: body.source,
+    customerId: req.user?.id, notes: body.notes, source: body.source, smsOptIn: body.smsOptIn,
   }, req.user ? { id: req.user.id, label: req.user.email } : { label: `guest:${body.email}` });
   const paymentUrl = booking.status === "pending_payment" ? await startPayment(booking.id) : undefined;
   return { booking: serializeBooking(booking, { includeToken: true }), paymentUrl };
@@ -102,6 +104,11 @@ publicRouter.post("/manage/:token/cancel", h(async (req) => {
   const b = bookingByToken(req.params.token as string);
   const updated = await cancelBooking(b.id, { byCustomer: true, reason: req.body?.reason }, { label: `customer:${b.customer_email}` });
   return serializeBooking(updated, { includeToken: true });
+}));
+
+publicRouter.post("/manage/:token/confirm", h((req) => {
+  const b = bookingByToken(req.params.token as string);
+  return serializeBooking(confirmAttendance(b.id, { label: `customer:${b.customer_email}` }), { includeToken: true });
 }));
 
 publicRouter.post("/manage/:token/pay", h(async (req) => {

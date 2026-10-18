@@ -42,6 +42,7 @@ function systemPrompt(kind: "customer" | "admin", business: Row) {
     `Guidelines:\n- Use the tools for every service, price and availability fact; never invent times.\n` +
     `- Offer a few concrete options rather than long lists.\n` +
     `- Before booking, collect the customer's name and email (phone optional), then summarize service, time, staff and price and get an explicit yes.\n` +
+    (business.sms_enabled ? `- If they give a phone number, ask whether they'd like text reminders and only set sms_opt_in if they say yes.\n` : "") +
     `- To change an existing booking you need the booking code and the email used to book.\n` +
     `- If payment is required, share the payment link and explain the time is held for 30 minutes.\n` +
     `- Stay on the topic of this business's appointments; politely decline unrelated requests.\n` +
@@ -62,6 +63,9 @@ export async function chat(opts: {
   sessionId?: string;
   message: string;
   admin?: AuthUser;
+  /** SMS replies must be short plain text; context says who is texting and about which booking. */
+  channel?: "web" | "sms";
+  context?: string;
 }): Promise<ChatResult> {
   if (!aiAvailable()) throw badRequest("AI chat is not configured on this server (ANTHROPIC_API_KEY)");
   const { kind, business } = opts;
@@ -82,6 +86,10 @@ export async function chat(opts: {
     role: "user",
     content: [
       { type: "text", text: `[Current date/time at the business: ${now}]` },
+      ...(opts.channel === "sms"
+        ? [{ type: "text" as const, text: "[Channel: SMS text message. Reply in plain text under 320 characters, no markdown.]" }]
+        : []),
+      ...(opts.context ? [{ type: "text" as const, text: `[${opts.context}]` }] : []),
       { type: "text", text: opts.message.slice(0, 4000) },
     ],
   });

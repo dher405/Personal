@@ -35,6 +35,7 @@ function Overview() {
       <div className="card"><div className="muted small">Bookings (30d)</div><div className="stat">{data.bookings30d}</div></div>
       <div className="card"><div className="muted small">Customer payments (30d)</div><div className="stat">{money(data.gmv30dCents)}</div></div>
       <div className="card"><div className="muted small">Platform fees earned (30d)</div><div className="stat">{money(data.platformFees30dCents)}</div></div>
+      <div className="card"><div className="muted small">Texts sent (30d)</div><div className="stat">{data.sms30d}</div></div>
       <div className="card"><div className="muted small">By plan</div>{data.byPlan.map((p: any) => <div key={p.plan}>{p.plan}: <strong>{p.n}</strong></div>)}</div>
     </div>
   );
@@ -56,7 +57,7 @@ function Businesses() {
       {action.error && <div className="error">{action.error}</div>}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Business</th><th>Admins</th><th>Plan</th><th>Payments</th><th>Bookings</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Business</th><th>Admins</th><th>Plan</th><th>Payments</th><th>Bookings</th><th>Texts (month)</th><th>Status</th><th /></tr></thead>
           <tbody>
             {data?.map((b) => (
               <tr key={b.id}>
@@ -70,6 +71,7 @@ function Businesses() {
                 </td>
                 <td>{b.payment_provider}</td>
                 <td>{b.booking_count}</td>
+                <td>{b.sms_this_month}</td>
                 <td>{b.suspended ? <span className="badge bad">suspended</span> : <span className="badge ok">active</span>}</td>
                 <td>
                   <div className="row">
@@ -131,7 +133,7 @@ function Plans() {
       {action.error && <div className="error">{action.error}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Fee per payment (%)</th><th>Max staff</th><th>AI chat</th><th /></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Fee per payment (%)</th><th>Max staff</th><th>Texts / month</th><th>AI chat</th><th /></tr></thead>
           <tbody>
             {data.map((p, i) => (
               <tr key={i}>
@@ -140,6 +142,7 @@ function Plans() {
                 <td><input type="number" step="0.01" value={p.monthlyPriceCents / 100} onChange={(e) => update(i, { monthlyPriceCents: Math.round(Number(e.target.value) * 100) })} /></td>
                 <td><input type="number" step="0.01" value={p.platformFeeBps / 100} onChange={(e) => update(i, { platformFeeBps: Math.round(Number(e.target.value) * 100) })} /></td>
                 <td><input type="number" value={p.maxStaff} onChange={(e) => update(i, { maxStaff: Number(e.target.value) })} /></td>
+                <td><input type="number" min={0} value={p.smsPerMonth} onChange={(e) => update(i, { smsPerMonth: Number(e.target.value) })} /></td>
                 <td><input type="checkbox" checked={p.aiChat} onChange={(e) => update(i, { aiChat: e.target.checked })} /></td>
                 <td>{p.id !== "free" && <button className="danger" onClick={() => setData(data.filter((_, j) => j !== i))}>Remove</button>}</td>
               </tr>
@@ -148,7 +151,7 @@ function Plans() {
         </table>
       </div>
       <div className="row">
-        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, platformFeeBps: 0, maxStaff: 1, aiChat: false }])}>+ Add plan</button>
+        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, platformFeeBps: 0, maxStaff: 1, aiChat: false, smsPerMonth: 0 }])}>+ Add plan</button>
         <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { setData(await api("/super/plans", { method: "PUT", body: data })); setSaved(true); setTimeout(() => setSaved(false), 2000); })}>Save plans</button>
         {saved && <span className="notice small">Saved</span>}
       </div>

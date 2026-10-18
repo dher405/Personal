@@ -17,6 +17,7 @@ superRouter.get("/overview", h(() => ({
   gmv30dCents: one("SELECT COALESCE(SUM(amount_cents - refunded_cents), 0) AS n FROM payments WHERE status IN ('paid','partially_refunded') AND created_at >= datetime('now','-30 days')")!.n,
   platformFees30dCents: one("SELECT COALESCE(SUM(platform_fee_cents), 0) AS n FROM payments WHERE status IN ('paid','partially_refunded') AND created_at >= datetime('now','-30 days')")!.n,
   byPlan: all("SELECT plan, COUNT(*) AS n FROM businesses GROUP BY plan"),
+  sms30d: one("SELECT COUNT(*) AS n FROM sms_messages WHERE direction = 'outbound' AND status NOT IN ('failed','skipped') AND created_at >= datetime('now','-30 days')")!.n,
 })));
 
 superRouter.get("/businesses", h((req) => {
@@ -24,6 +25,8 @@ superRouter.get("/businesses", h((req) => {
   return all(
     `SELECT b.id, b.name, b.slug, b.plan, b.plan_status, b.suspended, b.payment_provider, b.created_at,
             (SELECT COUNT(*) FROM bookings k WHERE k.business_id = b.id) AS booking_count,
+            (SELECT COUNT(*) FROM sms_messages m WHERE m.business_id = b.id AND m.direction = 'outbound' AND m.status NOT IN ('failed','skipped')
+               AND m.created_at >= datetime('now','start of month')) AS sms_this_month,
             (SELECT GROUP_CONCAT(u.email) FROM business_members m JOIN users u ON u.id = m.user_id WHERE m.business_id = b.id) AS admins
        FROM businesses b WHERE b.name LIKE ? OR b.slug LIKE ? ORDER BY b.created_at DESC LIMIT 500`, q, q,
   );
@@ -73,7 +76,7 @@ superRouter.put("/plans", h((req) => {
   const plans = parse(z.array(z.object({
     id: z.string().regex(/^[a-z0-9-]+$/), name: z.string().min(1),
     monthlyPriceCents: z.number().int().min(0), platformFeeBps: z.number().int().min(0).max(3000),
-    maxStaff: z.number().int().min(1), aiChat: z.boolean(),
+    maxStaff: z.number().int().min(1), aiChat: z.boolean(), smsPerMonth: z.number().int().min(0),
   })).min(1), req.body);
   if (!plans.some((p) => p.id === "free")) throw badRequest("A 'free' plan must exist (it is the fallback when subscriptions end)");
   savePlans(plans);

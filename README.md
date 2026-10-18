@@ -37,6 +37,13 @@ Every change to a booking, price, refund, or plan is written to an audit log, al
   - Monthly plans billed through *your* Stripe account (Stripe Billing, with a customer portal for invoices and cards).
   - A percentage fee on each online customer payment, set per plan.
   - Plans also set the staff limit and whether AI is included. The super admin edits all of this in **Super admin → Plans & fees**.
+- **Text messages (Twilio).** Customers who tick "Text me" when booking get a confirmation, reminders (24h and 2h before by default; configurable), and notices when something changes. They can reply:
+  - **C** to confirm they'll come (the booking shows "✓ customer confirmed").
+  - **R** to get three new times, then **1**, **2** or **3** to move to one.
+  - **X** to cancel (within the cancellation policy, with an automatic refund).
+  - Anything else goes to the AI assistant, if the business has it on ("can I come Thursday at 4 instead?").
+
+  Admins get a text when customers book, confirm, reschedule or cancel, plus an optional morning agenda. Staff can get an "up next" text before each appointment. Admins can text **TODAY** or **TOMORROW** for their schedule, or (on AI plans) ask in plain words to move or cancel bookings. STOP/START opt-outs are respected. Each plan includes a monthly text allowance that you set as super admin.
 - **Refunds.** Full or partial, from the admin bookings screen, the payments list, the super admin payments list, or the mobile admin. If a customer cancels online within the policy window, they're refunded automatically.
 
 ## Quick start (local)
@@ -59,7 +66,7 @@ Open http://localhost:5173.
 
 The demo business uses **test mode** payments, so you can run the whole flow (book → pay → refund) without any payment account.
 
-Tests: `npm test`. They cover availability, double booking, payment → confirm → refund, admin moves, price changes and refunds, permissions between businesses, plan limits, the cancellation policy, and the AI tool loop (run against a fake Messages API).
+Tests: `npm test`. They cover texting (opt-in, reminder timing, C/R/X replies, STOP, admin agenda, plan allowance, Twilio signatures), availability, double booking, payment → confirm → refund, admin moves, price changes and refunds, permissions between businesses, plan limits, the cancellation policy, and the AI tool loop (run against a fake Messages API).
 
 ## Turning on the AI assistant
 
@@ -68,6 +75,19 @@ Tests: `npm test`. They cover availability, double booking, payment → confirm 
 3. Turn it on in **Admin → AI assistant**.
 
 Each message from a customer is an API call that you pay for. The public chat is rate-limited per IP (`server/src/lib/rateLimit.ts`). Server-side model fallbacks are enabled, so if a request is declined it is retried on a fallback model instead of failing.
+
+## Setting up text messages (Twilio)
+
+Without Twilio settings, texts are **simulated**: they show up in **Admin → Text messages → Message log**, and the "Try a reply" box there lets you pretend to be a customer texting back. That's enough to try every flow locally.
+
+To send real texts:
+1. In Twilio, buy a number and create a **Messaging Service** containing it. The service handles STOP/HELP automatically.
+2. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_MESSAGING_SERVICE_SID` (or `TWILIO_FROM_NUMBER`) in `server/.env`.
+3. On the Messaging Service, set the incoming message webhook to `https://<your-api>/api/webhooks/twilio/sms` (HTTP POST). Delivery statuses come back to `/api/webhooks/twilio/status` automatically. Both check Twilio's signature, so `PUBLIC_API_URL` must exactly match the public URL Twilio calls.
+4. **US numbers must be registered** before carriers will deliver: register your brand and campaign through **A2P 10DLC** in the Twilio console, or use a verified toll-free number. Registration takes days to weeks, so start early. Describe the use case as appointment confirmations and reminders with two-way replies.
+5. Each business turns texting on under **Admin → Text messages** and enters their own mobile number for alerts. Staff mobile numbers go under **Staff & hours**.
+
+All businesses share one platform number. When a customer replies, it's matched to the booking from the most recent text that customer received.
 
 ## Setting up payments
 
@@ -114,15 +134,17 @@ To publish to the App Store and Google Play, use EAS: `npx eas build` then `npx 
 | Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/auth/my-bookings` |
 | Public | `GET /api/public/businesses[/:slug]`, `GET …/:slug/slots`, `POST …/:slug/bookings`, `POST …/:slug/chat` |
 | Customer self-service | `GET /api/public/manage/:token`, `POST …/reschedule`, `…/cancel`, `…/pay` |
-| Admin (per business) | `/api/admin/:bid` → settings, `/services`, `/staff`, `/staff/:id/hours`, `/staff/:id/time-off`, `/bookings`, `/slots`, `/payments`, `/payments/:id/refund`, `/payment-provider`, `/billing/checkout`, `/billing/portal`, `/assistant`, `/stats`, `/audit` |
+| Admin (per business) | `/api/admin/:bid` → settings, `/sms`, `/sms/test`, `/sms/simulate`, `/bookings/:id/sms-reminder`, `/services`, `/staff`, `/staff/:id/hours`, `/staff/:id/time-off`, `/bookings`, `/slots`, `/payments`, `/payments/:id/refund`, `/payment-provider`, `/billing/checkout`, `/billing/portal`, `/assistant`, `/stats`, `/audit` |
 | Super admin | `/api/super/overview`, `/businesses`, `/businesses/:id/members`, `/users`, `/plans`, `/payments`, `/audit` |
 | Payments | `/api/payments/:id/return`, `/api/payments/sync/:token`, `/api/webhooks/{stripe,square,paypal}` |
+| SMS | `/api/webhooks/twilio/sms` (incoming texts), `/api/webhooks/twilio/status` (delivery status), `POST /api/public/manage/:token/confirm` |
 
 ## Before launching for real
 
 - [ ] Run on a host with HTTPS (Render, Fly.io, Railway, AWS). Set `NODE_ENV=production`, `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `PUBLIC_WEB_URL`, and `PUBLIC_API_URL`. Serve `web/dist` from a CDN or static host.
 - [ ] **Database.** SQLite is fine for one server. To run several, move to Postgres; all SQL goes through `server/src/db.ts`.
-- [ ] **Email/SMS confirmations and reminders.** `server/src/lib/notify.ts` only logs right now. Connect a provider such as Postmark, SendGrid, or Twilio.
+- [ ] **Email confirmations.** Texts go through Twilio; email in `server/src/lib/notify.ts` still only logs. Connect a provider such as Postmark or SendGrid.
+- [ ] **Twilio live setup and A2P 10DLC (or toll-free) registration**, as described above. Texts sent before registration will be blocked by US carriers.
 - [ ] **Password reset by email.** Not built yet; for now a super admin resets passwords.
 - [ ] Switch Stripe, Square, and PayPal to live keys and register the webhooks above. Apply for PayPal Commerce Platform if you want PayPal fees.
 - [ ] Terms of service, privacy policy, and refund policy pages. Your payment providers' platform agreements will ask for these.

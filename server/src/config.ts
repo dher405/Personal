@@ -24,6 +24,13 @@ export const config = {
     webhookSignatureKey: env.SQUARE_WEBHOOK_SIGNATURE_KEY ?? "",
     webhookUrl: env.SQUARE_WEBHOOK_URL ?? "",
   },
+  twilio: {
+    accountSid: env.TWILIO_ACCOUNT_SID ?? "",
+    authToken: env.TWILIO_AUTH_TOKEN ?? "",
+    messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID ?? "",
+    fromNumber: env.TWILIO_FROM_NUMBER ?? "",
+    defaultCountryCode: env.SMS_DEFAULT_COUNTRY_CODE ?? "1",
+  },
   paypal: {
     env: env.PAYPAL_ENV ?? "sandbox",
     clientId: env.PAYPAL_CLIENT_ID ?? "",

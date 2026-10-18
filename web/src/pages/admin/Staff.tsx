@@ -31,6 +31,7 @@ function StaffCard({ staff: s, reload }: { staff: any; reload: () => void }) {
   const [off, setOff] = useState({ start: "", end: "", reason: "" });
   const action = useAction();
   const [saved, setSaved] = useState(false);
+  const [phone, setPhone] = useState(s.phone ?? "");
 
   const update = (i: number, patch: Partial<Block>) => setHours(hours.map((h, j) => (j === i ? { ...h, ...patch } : h)));
   const saveHours = () => action.run(async () => {
@@ -50,6 +51,11 @@ function StaffCard({ staff: s, reload }: { staff: any; reload: () => void }) {
         </button>
       </div>
       {action.error && <div className="error">{action.error}</div>}
+      <div className="row">
+        <input style={{ width: 220 }} type="tel" placeholder="Mobile for appointment texts" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        <button disabled={phone === (s.phone ?? "")} onClick={() => action.run(async () => { await api(`/admin/${biz.id}/staff/${s.id}`, { method: "PATCH", body: { phone: phone || null } }); reload(); })}>Save phone</button>
+        <span className="small muted">Gets an "up next" text before each appointment when enabled under Text messages.</span>
+      </div>
       <h3>Weekly hours <span className="muted small">({biz.timezone})</span></h3>
       {hours.map((h, i) => (
         <div key={i} className="row">

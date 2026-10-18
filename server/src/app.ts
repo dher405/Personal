@@ -8,6 +8,7 @@ import { publicRouter } from "./routes/public.js";
 import { adminRouter } from "./routes/admin.js";
 import { superRouter } from "./routes/superadmin.js";
 import { paymentsRouter } from "./routes/payments.js";
+import { smsWebhookRouter } from "./routes/sms.js";
 
 export function createApp() {
   const app = express();
@@ -16,6 +17,7 @@ export function createApp() {
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   // Mounted before express.json so webhook routes receive the raw body.
   app.use("/api", paymentsRouter);
+  app.use("/api", smsWebhookRouter);
   app.use(express.json({ limit: "200kb" }));
   app.use(optionalAuth);
   app.use("/api/auth", authRouter);

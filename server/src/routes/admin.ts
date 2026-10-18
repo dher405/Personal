@@ -14,6 +14,9 @@ import { startPlanCheckout, openBillingPortal } from "../lib/platformBilling.js"
 import { chat } from "../ai/chat.js";
 import { aiChatEnabled } from "./public.js";
 import { config } from "../config.js";
+import { normalizePhone, sendSms, smsLive, smsUsedThisMonth, templates } from "../lib/sms.js";
+import { handleInboundSms } from "../lib/smsInbound.js";
+import { parseReminderHours } from "../lib/reminders.js";
 
 export const adminRouter = Router({ mergeParams: true });
 
@@ -51,6 +54,7 @@ function publicSettings(b: Record<string, any>) {
     },
     plan_details: getPlan(b.plan),
     ai_chat_active: aiChatEnabled(b),
+    sms_usage: { used: smsUsedThisMonth(b.id), allowance: getPlan(b.plan).smsPerMonth, live: smsLive() },
   };
 }
 
@@ -63,8 +67,17 @@ adminRouter.patch("/", h((req) => {
     slot_interval_min: z.number().int().min(5).max(240), min_notice_min: z.number().int().min(0),
     max_advance_days: z.number().int().min(1).max(730), cancellation_hours: z.number().int().min(0),
     require_payment: z.boolean(), ai_enabled: z.boolean(), ai_instructions: z.string().max(4000),
+    sms_enabled: z.boolean(), sms_reminder_hours: z.string().max(40), sms_admin_phone: z.string().nullable(),
+    sms_admin_alerts: z.boolean(), sms_agenda_hour: z.number().int().min(0).max(23).nullable(),
+    sms_staff_reminder_min: z.number().int().min(5).max(24 * 60).nullable(),
   }).partial(), req.body);
   if (body.timezone && !DateTime.local().setZone(body.timezone).isValid) throw badRequest("Unknown timezone");
+  if (body.sms_reminder_hours !== undefined) body.sms_reminder_hours = parseReminderHours(body.sms_reminder_hours).join(",");
+  if (body.sms_admin_phone) {
+    const phone = normalizePhone(body.sms_admin_phone);
+    if (!phone) throw badRequest("Admin phone number isn't valid");
+    body.sms_admin_phone = phone;
+  }
   const entries = Object.entries(body).map(([k, v]) => [k, typeof v === "boolean" ? Number(v) : v] as const);
   if (entries.length) {
     run(`UPDATE businesses SET ${entries.map(([k]) => `${k} = ?`).join(", ")} WHERE id = ?`, ...entries.map(([, v]) => v), bid(req));
@@ -140,21 +153,26 @@ adminRouter.get("/staff", h((req) => all("SELECT * FROM staff WHERE business_id 
 }))));
 
 adminRouter.post("/staff", h((req) => {
-  const body = parse(z.object({ name: z.string().min(1), email: z.email().optional(), bio: z.string().default("") }), req.body);
+  const body = parse(z.object({ name: z.string().min(1), email: z.email().optional(), phone: z.string().optional(), bio: z.string().default("") }), req.body);
   const b = business(req);
   const count = one<{ n: number }>("SELECT COUNT(*) AS n FROM staff WHERE business_id = ? AND active = 1", b.id)!.n;
   if (count >= getPlan(b.plan).maxStaff && req.user!.role !== "superadmin") {
     throw forbidden(`Your ${getPlan(b.plan).name} plan allows ${getPlan(b.plan).maxStaff} staff. Upgrade to add more.`);
   }
   const id = newId("stf");
-  run("INSERT INTO staff (id, business_id, name, email, bio) VALUES (?,?,?,?,?)", id, b.id, body.name, body.email ?? null, body.bio);
+  run("INSERT INTO staff (id, business_id, name, email, phone, bio) VALUES (?,?,?,?,?,?)", id, b.id, body.name, body.email ?? null, normalizePhone(body.phone) ?? null, body.bio);
   audit(actor(req), b.id, "staff.created", { id, name: body.name });
   return one("SELECT * FROM staff WHERE id = ?", id);
 }));
 
 adminRouter.patch("/staff/:id", h((req) => {
   const s = ownedBy(one("SELECT * FROM staff WHERE id = ?", req.params.id), bid(req), "Staff");
-  const body = parse(z.object({ name: z.string().min(1), email: z.email().nullable(), bio: z.string(), active: z.boolean() }).partial(), req.body);
+  const body = parse(z.object({ name: z.string().min(1), email: z.email().nullable(), phone: z.string().nullable(), bio: z.string(), active: z.boolean() }).partial(), req.body);
+  if (body.phone) {
+    const phone = normalizePhone(body.phone);
+    if (!phone) throw badRequest("Phone number isn't valid");
+    body.phone = phone;
+  }
   const entries = Object.entries(body).map(([k, v]) => [k, typeof v === "boolean" ? Number(v) : v] as const);
   if (entries.length) run(`UPDATE staff SET ${entries.map(([k]) => `${k} = ?`).join(", ")} WHERE id = ?`, ...entries.map(([, v]) => v), s.id);
   audit(actor(req), bid(req), "staff.updated", { id: s.id, ...body });
@@ -217,11 +235,12 @@ adminRouter.post("/bookings", h((req) => {
   const body = parse(z.object({
     serviceId: z.string(), staffId: z.string(), start: z.string(), name: z.string().min(1), email: z.email(),
     phone: z.string().optional(), notes: z.string().optional(), priceCents: z.number().int().min(0).optional(), force: z.boolean().optional(),
+    smsOptIn: z.boolean().optional(),
   }), req.body);
   const booking = createBooking({
     businessId: bid(req), serviceId: body.serviceId, staffId: body.staffId, start: body.start,
     customer: { name: body.name, email: body.email, phone: body.phone }, notes: body.notes,
-    source: "admin", force: body.force, priceCentsOverride: body.priceCents,
+    source: "admin", force: body.force, priceCentsOverride: body.priceCents, smsOptIn: body.smsOptIn,
   }, actor(req));
   return serializeBooking(booking, { includeToken: true });
 }));
@@ -318,4 +337,36 @@ adminRouter.post("/assistant", h(async (req) => {
   const b = business(req);
   if (!getPlan(b.plan).aiChat && req.user!.role !== "superadmin") throw forbidden("The AI assistant is available on paid plans");
   return chat({ kind: "admin", business: b, sessionId: body.sessionId, message: body.message, admin: req.user });
+}));
+
+// ---------- Text messages ----------
+
+adminRouter.get("/sms", h((req) => ({
+  usage: { used: smsUsedThisMonth(bid(req)), allowance: getPlan(business(req).plan).smsPerMonth, live: smsLive() },
+  messages: all("SELECT * FROM sms_messages WHERE business_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 200", bid(req)),
+})));
+
+adminRouter.post("/sms/test", h(async (req) => {
+  const body = parse(z.object({ to: z.string().optional() }), req.body ?? {});
+  const b = business(req);
+  const to = body.to ?? b.sms_admin_phone;
+  if (!to) throw badRequest("Enter a phone number or set the admin alert phone first");
+  return sendSms({ business: b, to, body: `${b.name}: test message from Slotwise. Texting is set up.`, kind: "test", audience: "admin", force: true });
+}));
+
+/** "Send reminder now" from the bookings screen. Only to customers who agreed to texts. */
+adminRouter.post("/bookings/:id/sms-reminder", h(async (req) => {
+  const b = ownedBy(getBooking(req.params.id as string), bid(req), "Booking");
+  if (!b.sms_opt_in || !b.customer_phone) throw badRequest("This customer hasn't agreed to text messages");
+  const msg = await sendSms({ business: business(req), to: b.customer_phone, body: templates.reminder(b), kind: "reminder_manual", audience: "customer", bookingId: b.id });
+  if (msg.status === "skipped" || msg.status === "failed") throw badRequest(msg.error ?? "Text not sent");
+  return msg;
+}));
+
+/** Pretend a phone texted us — lets admins try two-way texting before Twilio is connected. */
+adminRouter.post("/sms/simulate", h(async (req) => {
+  if (config.isProduction && smsLive()) throw forbidden("The simulator is only available before Twilio is connected");
+  const body = parse(z.object({ from: z.string().min(5), body: z.string().min(1).max(1600) }), req.body);
+  const replies = await handleInboundSms(body.from, body.body);
+  return { replies };
 }));

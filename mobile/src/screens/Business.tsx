@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { DateTime } from "luxon";
 import { api, money } from "../api";
 import { Button, Card, ErrorText, H, Input, P, useTheme } from "../ui";
@@ -15,6 +15,7 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [form, setForm] = useState({ name: session?.user.name ?? "", email: session?.user.email ?? "", phone: "" });
+  const [smsOptIn, setSmsOptIn] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
@@ -40,7 +41,7 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
     setBusy(true); setError("");
     try {
       const res = await api(`/public/businesses/${slug}/bookings`, {
-        body: { serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email, phone: form.phone || undefined, source: "mobile" },
+        body: { serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email, phone: form.phone || undefined, source: "mobile", smsOptIn: smsOptIn && !!form.phone },
       });
       setDone(res.booking);
       if (res.paymentUrl) Linking.openURL(res.paymentUrl);
@@ -112,7 +113,13 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
           <View style={{ height: 10 }} />
           <Input label="Name" value={form.name} onChangeText={(name) => setForm({ ...form, name })} />
           <Input label="Email" keyboardType="email-address" autoCapitalize="none" value={form.email} onChangeText={(email) => setForm({ ...form, email })} />
-          <Input label="Phone (optional)" keyboardType="phone-pad" value={form.phone} onChangeText={(phone) => setForm({ ...form, phone })} />
+          <Input label={biz.smsEnabled ? "Phone (for text reminders)" : "Phone (optional)"} keyboardType="phone-pad" value={form.phone} onChangeText={(phone) => setForm({ ...form, phone })} />
+          {biz.smsEnabled && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <Switch value={smsOptIn} disabled={!form.phone} onValueChange={setSmsOptIn} />
+              <View style={{ flex: 1 }}><P small>Text me my confirmation and reminders (reply to confirm, reschedule or cancel). Msg & data rates may apply; reply STOP to opt out.</P></View>
+            </View>
+          )}
           <Button primary busy={busy} disabled={!form.name || !form.email} title={biz.requirePayment && service.price_cents ? "Continue to payment" : "Confirm booking"} onPress={book} />
         </Card>
       )}

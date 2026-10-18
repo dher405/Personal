@@ -6,7 +6,8 @@ import { findSlots, isSlotAvailable } from "./availability.js";
 import { randomCode, randomToken } from "./crypto.js";
 import { badRequest, conflict, forbidden, notFound } from "./errors.js";
 import { platformFeeFor } from "./plans.js";
-import { notify } from "./notify.js";
+import { changedBy, notify } from "./notify.js";
+import { normalizePhone } from "./sms.js";
 
 type Actor = { id?: string | null; label: string };
 
@@ -19,6 +20,8 @@ export interface NewBooking {
   customerId?: string;
   notes?: string;
   source: "web" | "mobile" | "ai" | "admin";
+  /** Customer agreed to booking texts (required before we send any). */
+  smsOptIn?: boolean;
   /** Admins may book outside published hours (e.g. a squeeze-in). */
   force?: boolean;
   priceCentsOverride?: number;
@@ -45,6 +48,8 @@ export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) 
     start: b.starts_at,
     end: b.ends_at,
     status: b.status,
+    smsOptIn: !!b.sms_opt_in,
+    customerConfirmedAt: b.customer_confirmed_at,
     priceCents: b.price_cents,
     currency: b.currency,
     notes: b.notes,
@@ -91,16 +96,18 @@ export function createBooking(input: NewBooking, actor: Actor) {
     const id = newId("bk");
     run(
       `INSERT INTO bookings (id, code, manage_token, business_id, service_id, staff_id, customer_id, customer_name, customer_email,
-         customer_phone, starts_at, ends_at, status, price_cents, currency, notes, source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         customer_phone, starts_at, ends_at, status, price_cents, currency, notes, source, sms_opt_in)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, randomCode(), randomToken(), business.id, service.id, staffId, input.customerId ?? null,
-      input.customer.name, input.customer.email.toLowerCase(), input.customer.phone ?? null,
+      input.customer.name, input.customer.email.toLowerCase(),
+      input.customer.phone ? normalizePhone(input.customer.phone) ?? input.customer.phone : null,
       start.toISO(), start.plus({ minutes: service.duration_min }).toISO(),
       needsPayment ? "pending_payment" : "confirmed", price, business.currency, input.notes ?? "", input.source,
+      Number(!!input.smsOptIn && !!input.customer.phone),
     );
     audit(actor, business.id, "booking.created", { bookingId: id, start: start.toISO(), source: input.source });
     const booking = getBooking(id);
-    if (!needsPayment) notify("booking_confirmed", booking);
+    if (!needsPayment) notify("booking_confirmed", booking, input.source === "admin" ? "staff" : "customer");
     return booking;
   });
 }
@@ -163,7 +170,7 @@ export function markPaid(paymentId: string, providerPaymentId?: string) {
     if (payment.booking_id) {
       run("UPDATE bookings SET status = 'confirmed' WHERE id = ? AND status = 'pending_payment'", payment.booking_id);
       audit({ label: `provider:${payment.provider}` }, payment.business_id, "payment.paid", { paymentId, bookingId: payment.booking_id });
-      notify("booking_confirmed", getBooking(payment.booking_id));
+      notify("booking_confirmed", getBooking(payment.booking_id), "customer");
     }
   });
 }
@@ -204,7 +211,9 @@ export function rescheduleBooking(bookingId: string, newStart: string, opts: { s
     );
     audit(actor, booking.business_id, "booking.rescheduled", { bookingId, from: booking.starts_at, to: start.toISO(), staffId });
     const updated = getBooking(bookingId);
-    notify("booking_rescheduled", updated);
+    // Moving the booking means the customer's earlier confirmation and reminders no longer apply.
+    run("UPDATE bookings SET customer_confirmed_at = NULL, last_reminder_h = NULL, staff_reminded = 0 WHERE id = ?", booking.id);
+    notify("booking_rescheduled", updated, changedBy(actor));
     return updated;
   });
 }
@@ -232,8 +241,20 @@ export async function cancelBooking(bookingId: string, opts: { byCustomer: boole
     }
   }
   const updated = getBooking(bookingId);
-  notify("booking_cancelled", updated);
+  notify("booking_cancelled", updated, changedBy(actor));
   return updated;
+}
+
+/** Customer said "yes, I'll be there" (by text reply or the manage page). */
+export function confirmAttendance(bookingId: string, actor: Actor) {
+  const booking = getBooking(bookingId);
+  if (!["confirmed", "pending_payment"].includes(booking.status)) throw badRequest(`This booking is ${booking.status}`);
+  if (!booking.customer_confirmed_at) {
+    run("UPDATE bookings SET customer_confirmed_at = datetime('now') WHERE id = ?", bookingId);
+    audit(actor, booking.business_id, "booking.customer_confirmed", { bookingId });
+    notify("customer_confirmed", getBooking(bookingId), "customer");
+  }
+  return getBooking(bookingId);
 }
 
 /** Releases slots held by checkouts that were abandoned. */

@@ -28,6 +28,7 @@ export function Billing() {
               <li>Up to {p.maxStaff} staff</li>
               <li>{(p.platformFeeBps / 100).toFixed(2)}% fee on online payments</li>
               <li>{p.aiChat ? "AI booking chat + admin assistant" : "No AI chat"}</li>
+              <li>{p.smsPerMonth.toLocaleString()} text messages / month</li>
             </ul>
             {p.id === biz.plan ? <span className="badge ok">Current plan ({biz.plan_status})</span> : <button className="primary" disabled={action.busy} onClick={() => choose(p.id)}>Switch to {p.name}</button>}
           </div>

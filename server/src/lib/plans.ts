@@ -8,17 +8,21 @@ export interface Plan {
   platformFeeBps: number;
   maxStaff: number;
   aiChat: boolean;
+  /** Text messages included per month; sending stops (and is logged) once used up. */
+  smsPerMonth: number;
 }
 
 export const DEFAULT_PLANS: Plan[] = [
-  { id: "free", name: "Starter", monthlyPriceCents: 0, platformFeeBps: 300, maxStaff: 1, aiChat: false },
-  { id: "pro", name: "Pro", monthlyPriceCents: 2900, platformFeeBps: 100, maxStaff: 5, aiChat: true },
-  { id: "business", name: "Business", monthlyPriceCents: 7900, platformFeeBps: 0, maxStaff: 50, aiChat: true },
+  { id: "free", name: "Starter", monthlyPriceCents: 0, platformFeeBps: 300, maxStaff: 1, aiChat: false, smsPerMonth: 50 },
+  { id: "pro", name: "Pro", monthlyPriceCents: 2900, platformFeeBps: 100, maxStaff: 5, aiChat: true, smsPerMonth: 500 },
+  { id: "business", name: "Business", monthlyPriceCents: 7900, platformFeeBps: 0, maxStaff: 50, aiChat: true, smsPerMonth: 2000 },
 ];
 
 export function getPlans(): Plan[] {
   const row = one<{ value: string }>("SELECT value FROM platform_settings WHERE key = 'plans'");
-  return row ? JSON.parse(row.value) : DEFAULT_PLANS;
+  // Plans saved before SMS existed get the default allowance for their id.
+  const plans: Plan[] = row ? JSON.parse(row.value) : DEFAULT_PLANS;
+  return plans.map((p) => ({ ...p, smsPerMonth: p.smsPerMonth ?? DEFAULT_PLANS.find((d) => d.id === p.id)?.smsPerMonth ?? 0 }));
 }
 
 export function savePlans(plans: Plan[]) {
