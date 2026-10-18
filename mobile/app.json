@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Slotwise",
+    "slug": "slotwise",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "slotwise",
+    "ios": { "bundleIdentifier": "com.slotwise.app", "supportsTablet": true },
+    "android": { "package": "com.slotwise.app" },
+    "plugins": ["expo-secure-store"]
+  }
+}

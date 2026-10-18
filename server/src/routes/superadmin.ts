@@ -1,0 +1,90 @@
+import { Router } from "express";
+import { z } from "zod";
+import { all, audit, one, run } from "../db.js";
+import { actorOf, hashPassword } from "../lib/auth.js";
+import { badRequest, notFound } from "../lib/errors.js";
+import { h, parse } from "../lib/http.js";
+import { getPlans, savePlans } from "../lib/plans.js";
+import { setPlan } from "../lib/platformBilling.js";
+
+/** Platform-wide controls. Mounted behind requireSuperAdmin. Business-level actions reuse /api/admin/:bid. */
+export const superRouter = Router();
+
+superRouter.get("/overview", h(() => ({
+  businesses: one("SELECT COUNT(*) AS n FROM businesses")!.n,
+  users: one("SELECT COUNT(*) AS n FROM users")!.n,
+  bookings30d: one("SELECT COUNT(*) AS n FROM bookings WHERE created_at >= datetime('now', '-30 days')")!.n,
+  gmv30dCents: one("SELECT COALESCE(SUM(amount_cents - refunded_cents), 0) AS n FROM payments WHERE status IN ('paid','partially_refunded') AND created_at >= datetime('now','-30 days')")!.n,
+  platformFees30dCents: one("SELECT COALESCE(SUM(platform_fee_cents), 0) AS n FROM payments WHERE status IN ('paid','partially_refunded') AND created_at >= datetime('now','-30 days')")!.n,
+  byPlan: all("SELECT plan, COUNT(*) AS n FROM businesses GROUP BY plan"),
+})));
+
+superRouter.get("/businesses", h((req) => {
+  const q = `%${String(req.query.q ?? "")}%`;
+  return all(
+    `SELECT b.id, b.name, b.slug, b.plan, b.plan_status, b.suspended, b.payment_provider, b.created_at,
+            (SELECT COUNT(*) FROM bookings k WHERE k.business_id = b.id) AS booking_count,
+            (SELECT GROUP_CONCAT(u.email) FROM business_members m JOIN users u ON u.id = m.user_id WHERE m.business_id = b.id) AS admins
+       FROM businesses b WHERE b.name LIKE ? OR b.slug LIKE ? ORDER BY b.created_at DESC LIMIT 500`, q, q,
+  );
+}));
+
+superRouter.patch("/businesses/:id", h((req) => {
+  const b = one("SELECT * FROM businesses WHERE id = ?", req.params.id);
+  if (!b) throw notFound();
+  const body = parse(z.object({ suspended: z.boolean().optional(), plan: z.string().optional() }), req.body);
+  if (body.suspended !== undefined) {
+    run("UPDATE businesses SET suspended = ? WHERE id = ?", Number(body.suspended), b.id);
+    audit(actorOf(req.user), b.id, body.suspended ? "business.suspended" : "business.unsuspended");
+  }
+  // Manual override (comped accounts, support credits). Does not touch Stripe.
+  if (body.plan) setPlan(b.id, body.plan, "active", actorOf(req.user));
+  return one("SELECT id, name, plan, plan_status, suspended FROM businesses WHERE id = ?", b.id);
+}));
+
+superRouter.post("/businesses/:id/members", h((req) => {
+  const body = parse(z.object({ email: z.email(), role: z.enum(["owner", "manager"]).default("manager") }), req.body);
+  const user = one("SELECT * FROM users WHERE email = ?", body.email);
+  if (!user) throw badRequest("No user with that email; ask them to sign up first");
+  if (user.role === "customer") run("UPDATE users SET role = 'admin' WHERE id = ?", user.id);
+  run("INSERT OR REPLACE INTO business_members (business_id, user_id, role) VALUES (?,?,?)", req.params.id, user.id, body.role);
+  audit(actorOf(req.user), req.params.id as string, "member.added", { email: body.email, role: body.role });
+  return { ok: true };
+}));
+
+superRouter.get("/users", h((req) => {
+  const q = `%${String(req.query.q ?? "")}%`;
+  return all("SELECT id, email, name, role, created_at FROM users WHERE email LIKE ? OR name LIKE ? ORDER BY created_at DESC LIMIT 500", q, q);
+}));
+
+superRouter.patch("/users/:id", h(async (req) => {
+  const body = parse(z.object({ role: z.enum(["superadmin", "admin", "customer"]).optional(), password: z.string().min(8).optional() }), req.body);
+  const user = one("SELECT * FROM users WHERE id = ?", req.params.id);
+  if (!user) throw notFound();
+  if (body.role) run("UPDATE users SET role = ? WHERE id = ?", body.role, user.id);
+  if (body.password) run("UPDATE users SET password_hash = ? WHERE id = ?", await hashPassword(body.password), user.id);
+  audit(actorOf(req.user), null, "user.updated", { userId: user.id, role: body.role, passwordReset: !!body.password });
+  return one("SELECT id, email, name, role FROM users WHERE id = ?", user.id);
+}));
+
+superRouter.get("/plans", h(() => getPlans()));
+
+superRouter.put("/plans", h((req) => {
+  const plans = parse(z.array(z.object({
+    id: z.string().regex(/^[a-z0-9-]+$/), name: z.string().min(1),
+    monthlyPriceCents: z.number().int().min(0), platformFeeBps: z.number().int().min(0).max(3000),
+    maxStaff: z.number().int().min(1), aiChat: z.boolean(),
+  })).min(1), req.body);
+  if (!plans.some((p) => p.id === "free")) throw badRequest("A 'free' plan must exist (it is the fallback when subscriptions end)");
+  savePlans(plans);
+  audit(actorOf(req.user), null, "plans.updated", { plans });
+  return plans;
+}));
+
+superRouter.get("/payments", h(() => all(
+  `SELECT p.*, z.name AS business_name, b.code AS booking_code FROM payments p
+     JOIN businesses z ON z.id = p.business_id LEFT JOIN bookings b ON b.id = p.booking_id
+    ORDER BY p.created_at DESC LIMIT 500`,
+)));
+
+superRouter.get("/audit", h(() => all("SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 500")));
