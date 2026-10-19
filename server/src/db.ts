@@ -218,6 +218,26 @@ CREATE TABLE IF NOT EXISTS sms_opt_outs (
 );
 `);
 
+// --- Sign-in: password resets, Google/Apple accounts, session invalidation ---
+addColumn("users", "token_version", "INTEGER NOT NULL DEFAULT 0");
+db.exec(`
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS user_identities (
+  provider TEXT NOT NULL CHECK (provider IN ('google','apple')),
+  subject TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  email TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (provider, subject)
+);
+`);
+
 export type Row = Record<string, any>;
 
 export function one<T = Row>(sql: string, ...params: any[]): T | undefined {

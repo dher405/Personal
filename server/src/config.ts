@@ -42,6 +42,30 @@ export const config = {
     webhookSignatureKey: env.SQUARE_WEBHOOK_SIGNATURE_KEY ?? "",
     webhookUrl: env.SQUARE_WEBHOOK_URL ?? "",
   },
+  email: {
+    // EMAIL_FROM must be a sender your provider has verified, e.g. "Slotwise <no-reply@yourdomain.com>".
+    from: env.EMAIL_FROM ?? "Slotwise <no-reply@example.com>",
+    resendApiKey: env.RESEND_API_KEY ?? "",
+    postmarkToken: env.POSTMARK_SERVER_TOKEN ?? "",
+  },
+  oauth: {
+    google: {
+      clientId: env.GOOGLE_CLIENT_ID ?? "",
+      clientSecret: env.GOOGLE_CLIENT_SECRET ?? "",
+      authUrl: env.GOOGLE_AUTH_URL ?? "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: env.GOOGLE_TOKEN_URL ?? "https://oauth2.googleapis.com/token",
+    },
+    apple: {
+      // The Services ID (not the App ID) from developer.apple.com, e.g. com.slotwise.web
+      clientId: env.APPLE_SERVICES_ID ?? "",
+      teamId: env.APPLE_TEAM_ID ?? "",
+      keyId: env.APPLE_KEY_ID ?? "",
+      // Contents of the .p8 key; "\n" sequences are turned into newlines so it fits in one env var.
+      privateKey: (env.APPLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
+      authUrl: env.APPLE_AUTH_URL ?? "https://appleid.apple.com/auth/authorize",
+      tokenUrl: env.APPLE_TOKEN_URL ?? "https://appleid.apple.com/auth/token",
+    },
+  },
   twilio: {
     accountSid: env.TWILIO_ACCOUNT_SID ?? "",
     authToken: env.TWILIO_AUTH_TOKEN ?? "",

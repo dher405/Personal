@@ -6,6 +6,7 @@ import { badRequest, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { getPlans, savePlans } from "../lib/plans.js";
 import { setPlan } from "../lib/platformBilling.js";
+import { emailResetLink } from "../lib/passwordReset.js";
 
 /** Platform-wide controls. Mounted behind requireSuperAdmin. Business-level actions reuse /api/admin/:bid. */
 export const superRouter = Router();
@@ -57,7 +58,12 @@ superRouter.post("/businesses/:id/members", h((req) => {
 
 superRouter.get("/users", h((req) => {
   const q = `%${String(req.query.q ?? "")}%`;
-  return all("SELECT id, email, name, role, created_at FROM users WHERE email LIKE ? OR name LIKE ? ORDER BY created_at DESC LIMIT 500", q, q);
+  return all(
+    `SELECT u.id, u.email, u.name, u.role, u.created_at, u.password_hash != '' AS has_password,
+            (SELECT GROUP_CONCAT(provider) FROM user_identities i WHERE i.user_id = u.id) AS providers,
+            (SELECT GROUP_CONCAT(b.name, ', ') FROM business_members m JOIN businesses b ON b.id = m.business_id WHERE m.user_id = u.id) AS businesses
+       FROM users u WHERE u.email LIKE ? OR u.name LIKE ? ORDER BY u.created_at DESC LIMIT 500`, q, q,
+  );
 }));
 
 superRouter.patch("/users/:id", h(async (req) => {
@@ -65,9 +71,19 @@ superRouter.patch("/users/:id", h(async (req) => {
   const user = one("SELECT * FROM users WHERE id = ?", req.params.id);
   if (!user) throw notFound();
   if (body.role) run("UPDATE users SET role = ? WHERE id = ?", body.role, user.id);
-  if (body.password) run("UPDATE users SET password_hash = ? WHERE id = ?", await hashPassword(body.password), user.id);
+  // Setting a password signs the user out everywhere (their old sessions may be compromised).
+  if (body.password) run("UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?", await hashPassword(body.password), user.id);
   audit(actorOf(req.user), null, "user.updated", { userId: user.id, role: body.role, passwordReset: !!body.password });
   return one("SELECT id, email, name, role FROM users WHERE id = ?", user.id);
+}));
+
+/** Emails the user a reset link and also returns it, so it can be shared another way if email isn't set up. */
+superRouter.post("/users/:id/send-reset", h(async (req) => {
+  const user = one("SELECT id, email, name FROM users WHERE id = ?", req.params.id);
+  if (!user) throw notFound();
+  const result = await emailResetLink(user as any);
+  audit(actorOf(req.user), null, "user.reset_link_sent", { userId: user.id, emailed: result.delivered });
+  return result;
 }));
 
 superRouter.get("/plans", h(() => getPlans()));

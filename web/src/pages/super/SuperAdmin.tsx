@@ -94,13 +94,29 @@ function Users() {
   const { data, reload } = useApi<any[]>(`/super/users?q=${encodeURIComponent(q)}`);
   const action = useAction();
   const patch = (id: string, body: object) => action.run(async () => { await api(`/super/users/${id}`, { method: "PATCH", body }); reload(); });
+  const [resetInfo, setResetInfo] = useState<{ email: string; link: string; delivered: boolean } | null>(null);
+  const sendReset = (u: any) => action.run(async () => {
+    const res = await api(`/super/users/${u.id}/send-reset`, { body: {} });
+    setResetInfo({ email: u.email, ...res });
+  });
   return (
     <div className="stack">
+      {resetInfo && (
+        <div className="card stack">
+          <strong>{resetInfo.delivered ? `Reset email sent to ${resetInfo.email}.` : `Email isn't set up yet, so nothing was sent to ${resetInfo.email}.`}</strong>
+          <span className="small muted">You can also send them this link yourself (by text, for example). It works once and expires in 1 hour:</span>
+          <div className="row" style={{ flexWrap: "nowrap" }}>
+            <input readOnly value={resetInfo.link} onFocus={(e) => e.target.select()} />
+            <button onClick={() => navigator.clipboard?.writeText(resetInfo.link)}>Copy</button>
+            <button className="link" onClick={() => setResetInfo(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
       <input placeholder="Search users" value={q} onChange={(e) => setQ(e.target.value)} />
       {action.error && <div className="error">{action.error}</div>}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>User</th><th>Role</th><th>Joined</th><th /></tr></thead>
+          <thead><tr><th>User</th><th>Role</th><th>Signs in with</th><th>Businesses</th><th>Joined</th><th /></tr></thead>
           <tbody>
             {data?.map((u) => (
               <tr key={u.id}>
@@ -110,8 +126,17 @@ function Users() {
                     <option value="customer">customer</option><option value="admin">admin</option><option value="superadmin">superadmin</option>
                   </select>
                 </td>
+                <td className="small">
+                  {[u.has_password ? "Password" : null, ...(u.providers ? u.providers.split(",").map((p: string) => (p === "google" ? "Google" : "Apple")) : [])].filter(Boolean).join(", ")}
+                </td>
+                <td className="small">{u.businesses}</td>
                 <td className="small">{u.created_at.slice(0, 10)}</td>
-                <td><button onClick={() => { const pw = prompt("New password (8+ chars):"); if (pw) patch(u.id, { password: pw }); }}>Reset password</button></td>
+                <td>
+                  <div className="row">
+                    <button onClick={() => sendReset(u)}>Send reset link</button>
+                    <button onClick={() => { const pw = prompt(`Set a new password for ${u.email} (8+ characters). They'll be signed out everywhere.`); if (pw) patch(u.id, { password: pw }); }}>Set password</button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

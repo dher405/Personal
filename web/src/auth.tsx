@@ -12,6 +12,10 @@ interface AuthValue {
   register: (body: Record<string, string>) => Promise<Session>;
   logout: () => void;
   refresh: () => Promise<void>;
+  /** Accepts a session returned by the API (reset password, Google/Apple sign-in, new business). */
+  accept: (s: Session & { token: string }) => Session;
+  /** Signs in with a bare token (from the Google/Apple redirect) and loads the session. */
+  signInWithToken: (token: string) => Promise<Session>;
 }
 
 const AuthContext = createContext<AuthValue>(null!);
@@ -30,7 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      session, loading, refresh,
+      session, loading, refresh, accept,
+      signInWithToken: async (token) => { tokenStore.set(token); return accept(await api("/auth/me")); },
       login: async (email, password) => accept(await api("/auth/login", { body: { email, password } })),
       register: async (body) => accept(await api("/auth/register", { body })),
       logout: () => { tokenStore.set(null); setSession(null); },

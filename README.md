@@ -99,6 +99,32 @@ Tests: `npm test`. They cover texting (opt-in, reminder timing, C/R/X replies, S
 
 Each message from a customer is an API call that you pay for. The public chat is rate-limited per IP (`server/src/lib/rateLimit.ts`). Server-side model fallbacks are enabled, so if a request is declined it is retried on a fallback model instead of failing.
 
+## Sign-in, password resets, Google and Apple
+
+- **Forgot password:** the sign-in page has a "Forgot password?" link. People enter their email and get a single-use link that expires in 1 hour. Using it signs them out on every other device. The reply is the same whether or not the email has an account, so the form can't be used to find out who's registered.
+- **Super admin:** **Super admin → Users** shows how each person signs in (password, Google, Apple) and which businesses they manage. **Send reset link** emails them a link and also shows it to you to copy, which works even before email is set up. **Set password** sets one directly. Both sign them out everywhere.
+- **Account page:** anyone signed in can change their password there. People who joined with Google/Apple can add a password.
+- **Google/Apple accounts:** a Google or Apple account whose *verified* email matches an existing account is linked to it, so admins keep their businesses. New people get a customer account. Choosing "List your business" with Google/Apple takes them to a short "Set up your business" step.
+
+**Email (needed for reset emails).** Create a free [Resend](https://resend.com) account, verify your sending domain, and set `RESEND_API_KEY` and `EMAIL_FROM` (Postmark also works: `POSTMARK_SERVER_TOKEN`). Until then, reset links are only written to the server log. On Render that's the **Logs** tab; you can also use **Send reset link** above.
+
+**Google button.** In [Google Cloud Console](https://console.cloud.google.com) → APIs & Services:
+1. Set up the **OAuth consent screen** (External; app name, support email, your domain).
+2. Under **Credentials → Create credentials → OAuth client ID**, choose *Web application* and add the authorized redirect URI `https://<your-site>/api/auth/oauth/google/callback`.
+3. Put the client ID and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+
+While the consent screen is in "Testing", only the test users you list can sign in. Click **Publish app** when you're ready for everyone.
+
+**Apple button** (needs a paid Apple Developer account, $99/year, and an HTTPS site; it can't run on localhost). At [developer.apple.com](https://developer.apple.com/account/resources) → Certificates, IDs & Profiles:
+1. Under **Identifiers**, make sure your App ID has *Sign in with Apple* enabled.
+2. Create a **Services ID** (e.g. `com.yourcompany.slotwise.web`), enable *Sign in with Apple*, then **Configure**: add your domain and the return URL `https://<your-site>/api/auth/oauth/apple/callback`.
+3. Under **Keys**, create a key with *Sign in with Apple* and download the `.p8` file (you can only download it once).
+4. Set `APPLE_SERVICES_ID`, `APPLE_TEAM_ID` (top right of the developer site), `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY` (the .p8 contents).
+
+People who choose "Hide my email" get an `@privaterelay.appleid.com` address. To email them, register your sending domain under **Sign in with Apple for Email Communication** in Apple's developer site.
+
+On Render, add these keys under the service's **Environment** tab and it redeploys. The buttons appear automatically once their keys are set.
+
 ## Setting up text messages (Twilio)
 
 Without Twilio settings, texts are **simulated**: they show up in **Admin → Text messages → Message log**, and the "Try a reply" box there lets you pretend to be a customer texting back. That's enough to try every flow locally.
@@ -168,7 +194,7 @@ To publish to the App Store and Google Play, use EAS: `npx eas build` then `npx 
 - [ ] **Database.** SQLite is fine for one server. To run several, move to Postgres; all SQL goes through `server/src/db.ts`.
 - [ ] **Email confirmations.** Texts go through Twilio; email in `server/src/lib/notify.ts` still only logs. Connect a provider such as Postmark or SendGrid.
 - [ ] **Twilio live setup and A2P 10DLC (or toll-free) registration**, as described above. Texts sent before registration will be blocked by US carriers.
-- [ ] **Password reset by email.** Not built yet; for now a super admin resets passwords.
+- [ ] **Email provider** (Resend or Postmark) so password-reset emails are delivered.
 - [ ] Switch Stripe, Square, and PayPal to live keys and register the webhooks above. Apply for PayPal Commerce Platform if you want PayPal fees.
 - [ ] Terms of service, privacy policy, and refund policy pages. Your payment providers' platform agreements will ask for these.
 - [ ] Use a shared rate-limit store (Redis) if you run more than one API instance.

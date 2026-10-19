@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
 import { Home } from "./pages/Home";
-import { Login, Register } from "./pages/AuthPages";
+import { Account, AuthCallback, ForgotPassword, Login, Register, ResetPassword, StartBusiness } from "./pages/AuthPages";
 import { BookingPage } from "./pages/BookingPage";
 import { ManageBooking } from "./pages/ManageBooking";
 import { AdminHome, AdminLayout } from "./pages/admin/AdminLayout";
@@ -22,6 +22,7 @@ function TopBar() {
             {role !== "customer" && <Link to="/admin">Admin</Link>}
             {role === "superadmin" && <Link to="/super">Super admin</Link>}
             <Link to="/me">My bookings</Link>
+            <Link to="/account">Account</Link>
             <button className="link" onClick={logout}>Sign out</button>
           </>
         ) : (
@@ -51,6 +52,11 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/start-business" element={<RequireRole roles={["customer", "admin", "superadmin"]}><StartBusiness /></RequireRole>} />
+        <Route path="/account" element={<RequireRole roles={["customer", "admin", "superadmin"]}><Account /></RequireRole>} />
         <Route path="/b/:slug" element={<BookingPage />} />
         <Route path="/manage/:token" element={<ManageBooking />} />
         <Route path="/me" element={<RequireRole roles={["customer", "admin", "superadmin"]}><MyBookings /></RequireRole>} />

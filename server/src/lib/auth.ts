@@ -15,10 +15,13 @@ declare global {
 }
 
 export const hashPassword = (pw: string) => bcrypt.hash(pw, 10);
-export const checkPassword = (pw: string, hash: string) => bcrypt.compare(pw, hash);
+/** Accounts created through Google/Apple have no password until they set one. */
+export const checkPassword = (pw: string, hash: string) => (hash ? bcrypt.compare(pw, hash) : Promise.resolve(false));
 
+/** `ver` is bumped on password reset so tokens issued before it stop working. */
 export function signToken(user: AuthUser) {
-  return jwt.sign({ sub: user.id }, config.jwtSecret, { expiresIn: "7d" });
+  const row = one<{ token_version: number }>("SELECT token_version FROM users WHERE id = ?", user.id);
+  return jwt.sign({ sub: user.id, ver: row?.token_version ?? 0 }, config.jwtSecret, { expiresIn: "7d" });
 }
 
 /** Attaches req.user when a valid bearer token is present; never rejects. */
@@ -26,9 +29,11 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (header?.startsWith("Bearer ")) {
     try {
-      const payload = jwt.verify(header.slice(7), config.jwtSecret) as { sub: string };
-      const user = one<AuthUser>("SELECT id, email, name, role FROM users WHERE id = ?", payload.sub);
-      if (user) req.user = user;
+      const payload = jwt.verify(header.slice(7), config.jwtSecret) as { sub: string; ver?: number };
+      const user = one<AuthUser & { token_version: number }>("SELECT id, email, name, role, token_version FROM users WHERE id = ?", payload.sub);
+      if (user && (payload.ver ?? 0) === user.token_version) {
+        req.user = { id: user.id, email: user.email, name: user.name, role: user.role };
+      }
     } catch {
       // invalid/expired token: treat as anonymous
     }
