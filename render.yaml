@@ -6,7 +6,8 @@ services:
     runtime: node
     plan: free
     branch: slotwise
-    buildCommand: npm ci && npm run build
+    # --include=dev: NODE_ENV=production would otherwise skip TypeScript/Vite and type packages needed to build.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start --workspace server
     healthCheckPath: /api/health
     envVars:
