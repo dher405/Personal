@@ -116,6 +116,21 @@ Options: `data-service` (open on one service), `data-color`, `data-theme="dark"`
 - Only `/embed/*` may be framed by other sites. Every other page sends `frame-ancestors 'self'`, so admin screens can't be clickjacked.
 - Customers get confirmation, reschedule and cancellation **emails** (via Resend/Postmark) in addition to the optional texts.
 
+## Settings pages (no environment variables needed)
+
+**Super admin → Settings** holds every integration's keys: Stripe (plus both webhook secrets), PayPal and Square platform apps, email (Resend/Postmark), Twilio, Anthropic, Google, Microsoft and Apple.
+- Each section shows the exact webhook or redirect URLs to paste into that provider, and most have a **Test connection** button.
+- Values are stored encrypted with `APP_ENCRYPTION_KEY`, only the last 4 characters are ever shown, and changes apply immediately.
+- A value saved there overrides the environment variable of the same name, so existing Render setups keep working.
+- Only `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `DATABASE_PATH` and the site URL stay in the environment. **Saved settings live in the database, so use a persistent disk.**
+
+**Business → Payments** lets each business choose how it's paid:
+- **Stripe:** Connect through the platform (platform fee collected), or its own Stripe secret key + webhook secret.
+- **Square:** access token, location ID, environment, and an optional webhook signature key.
+- **PayPal:** merchant ID through the platform app (fee collected), or its own PayPal REST app (client ID, secret, webhook ID).
+
+Each business gets its own webhook address (`/api/webhooks/{stripe,square,paypal}/<businessId>`), checked with its own secret, and a **Test connection** button. With a business's own keys, no per-payment platform fee can be taken.
+
 ## Super admin workspace
 
 The super admin has no separate "Admin" section. **Super admin → Businesses → (a business)** opens the same tabs the business's admins see (Dashboard, Bookings, Services, Staff, Payments, texts, calendars, AI, billing, settings, website). The extra **Account & billing ★** tab shows:

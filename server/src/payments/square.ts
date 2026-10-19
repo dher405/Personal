@@ -5,15 +5,16 @@ import { decryptJson } from "../lib/crypto.js";
 import { badRequest } from "../lib/errors.js";
 import type { PaymentProvider } from "./types.js";
 
-const baseUrl = () =>
-  config.square.env === "production" ? "https://connect.squareup.com" : "https://connect.squareupsandbox.com";
+/** A business's own environment choice wins; otherwise the platform's (Super admin → Settings). */
+const baseUrl = (cfg: SquareConfig) =>
+  (cfg.squareEnv || config.square.env) === "production" ? "https://connect.squareup.com" : "https://connect.squareupsandbox.com";
 
-interface SquareConfig { accessToken?: string; locationId?: string; oauth?: boolean }
+interface SquareConfig { accessToken?: string; locationId?: string; oauth?: boolean; squareEnv?: string; squareWebhookKey?: string }
 
-async function squareFetch(business: Row, path: string, init: { method?: string; body?: unknown } = {}) {
+export async function squareFetch(business: Row, path: string, init: { method?: string; body?: unknown } = {}) {
   const cfg = decryptJson<SquareConfig>(business.payment_config);
   if (!cfg.accessToken || !cfg.locationId) throw badRequest("This business has not configured Square credentials yet");
-  const res = await fetch(`${baseUrl()}${path}`, {
+  const res = await fetch(`${baseUrl(cfg)}${path}`, {
     method: init.method ?? "GET",
     headers: {
       Authorization: `Bearer ${cfg.accessToken}`,

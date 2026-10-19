@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Route, Routes, useParams } from "react-router-dom";
 import { AdminLayout } from "../admin/AdminLayout";
 import { SuperBusinessPanel } from "./SuperBusinessPanel";
+import { PlatformSettings } from "./PlatformSettings";
 import { DateTime } from "luxon";
 import { api, money } from "../../api";
 import { useAction, useApi } from "../../hooks";
@@ -25,7 +26,7 @@ export function SuperAdmin() {
     <div className="container">
       <h1>Platform admin</h1>
       <nav className="tabs">
-        {[["", "Overview"], ["businesses", "Businesses"], ["users", "Users"], ["plans", "Plans & fees"], ["payments", "Payments"], ["audit", "Audit log"]].map(([p, l]) => (
+        {[["", "Overview"], ["businesses", "Businesses"], ["users", "Users"], ["plans", "Plans & fees"], ["payments", "Payments"], ["settings", "Settings"], ["audit", "Audit log"]].map(([p, l]) => (
           <NavLink key={p} end={!p} to={p ? `/super/${p}` : "/super"}>{l}</NavLink>
         ))}
       </nav>
@@ -36,6 +37,7 @@ export function SuperAdmin() {
         <Route path="users" element={<Users />} />
         <Route path="plans" element={<Plans />} />
         <Route path="payments" element={<AllPayments />} />
+        <Route path="settings" element={<PlatformSettings />} />
         <Route path="audit" element={<Audit />} />
       </Routes>
     </div>

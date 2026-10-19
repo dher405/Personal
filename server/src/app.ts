@@ -3,6 +3,8 @@ import cors from "cors";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
+// Loads keys saved on Super admin → Settings before anything reads them.
+import "./lib/platformSettings.js";
 import { optionalAuth, requireAuth, requireSuperAdmin } from "./lib/auth.js";
 import { errorHandler } from "./lib/http.js";
 import { authRouter } from "./routes/auth.js";

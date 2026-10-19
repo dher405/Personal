@@ -11,8 +11,12 @@ import { HttpError } from "../lib/errors.js";
 
 type MessageParam = Anthropic.Beta.BetaMessageParam;
 
-let client: Anthropic | null = null;
-const anthropic = () => (client ??= new Anthropic({ apiKey: config.ai.apiKey }));
+// Rebuilt when the key changes on Super admin → Settings.
+let client: { key: string; sdk: Anthropic } | null = null;
+const anthropic = () => {
+  if (client?.key !== config.ai.apiKey) client = { key: config.ai.apiKey, sdk: new Anthropic({ apiKey: config.ai.apiKey }) };
+  return client.sdk;
+};
 
 export const aiAvailable = () => !!config.ai.apiKey;
 

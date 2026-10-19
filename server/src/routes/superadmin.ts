@@ -7,6 +7,7 @@ import { badRequest, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { getPacks, getPlans, savePacks, savePlans } from "../lib/plans.js";
 import { grantCredits, usageFor } from "../lib/usage.js";
+import { describeSettings, saveSettings, testSettings } from "../lib/platformSettings.js";
 import { setPlan } from "../lib/platformBilling.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 
@@ -132,6 +133,20 @@ superRouter.post("/users/:id/send-reset", h(async (req) => {
   audit(actorOf(req.user), null, "user.reset_link_sent", { userId: user.id, emailed: result.delivered });
   return result;
 }));
+
+// ---------- Platform settings: API keys and webhooks for every integration ----------
+
+superRouter.get("/settings", h(() => ({ groups: describeSettings(), encryptionKeySet: !!config.encryptionKey })));
+
+superRouter.put("/settings", h((req) => {
+  const body = parse(z.object({ values: z.record(z.string(), z.string().max(10000).nullable()) }), req.body);
+  const changed = saveSettings(body.values);
+  // Record which settings changed, never their values.
+  audit(actorOf(req.user), null, "settings.updated", { changed });
+  return { groups: describeSettings() };
+}));
+
+superRouter.post("/settings/test/:group", h((req) => testSettings(req.params.group as string)));
 
 superRouter.get("/plans", h(() => getPlans()));
 

@@ -5,28 +5,38 @@ import { decryptJson } from "../lib/crypto.js";
 import { badRequest } from "../lib/errors.js";
 import type { PaymentProvider } from "./types.js";
 
-let client: Stripe | null = null;
-export function stripe(): Stripe {
-  if (!config.stripe.secretKey) throw badRequest("Stripe is not configured on this platform (STRIPE_SECRET_KEY)");
-  client ??= new Stripe(config.stripe.secretKey);
-  return client;
-}
+// Clients are cached per key, so a key changed on the Settings page takes effect on the next call.
+const clients = new Map<string, Stripe>();
+const clientFor = (key: string) => {
+  let c = clients.get(key);
+  if (!c) clients.set(key, (c = new Stripe(key)));
+  return c;
+};
 
-function accountFor(business: Row) {
-  const { stripeAccountId } = decryptJson<{ stripeAccountId?: string }>(business.payment_config);
-  if (!stripeAccountId) throw badRequest("This business has not connected a Stripe account yet");
-  return stripeAccountId;
+/** The platform's own Stripe account (plans, packs, Connect). */
+export function stripe(): Stripe {
+  if (!config.stripe.secretKey) throw badRequest("Stripe isn't set up on the platform yet (Super admin → Settings)");
+  return clientFor(config.stripe.secretKey);
 }
 
 /**
- * Stripe Connect with direct charges: money lands in the business's own Stripe
- * account and the platform's cut is taken as an application fee.
+ * Which Stripe account takes this business's payments:
+ * - their own keys (Payments tab): charges go straight to them; no platform fee is possible;
+ * - otherwise Stripe Connect: direct charges on their connected account, platform fee as an application fee.
  */
+export function stripeFor(business: Row): { client: Stripe; opts: Stripe.RequestOptions; own: boolean } {
+  const cfg = decryptJson<{ stripeAccountId?: string; stripeSecretKey?: string }>(business.payment_config);
+  if (cfg.stripeSecretKey) return { client: clientFor(cfg.stripeSecretKey), opts: {}, own: true };
+  if (!cfg.stripeAccountId) throw badRequest("This business hasn't finished setting up Stripe");
+  return { client: stripe(), opts: { stripeAccount: cfg.stripeAccountId }, own: false };
+}
+
 export const stripeProvider: PaymentProvider = {
   name: "stripe",
 
   async createCheckout(req) {
-    const session = await stripe().checkout.sessions.create(
+    const { client, opts, own } = stripeFor(req.business);
+    const session = await client.checkout.sessions.create(
       {
         mode: "payment",
         customer_email: req.customerEmail,
@@ -39,29 +49,31 @@ export const stripeProvider: PaymentProvider = {
           },
         }],
         payment_intent_data: {
-          application_fee_amount: req.platformFeeCents || undefined,
+          application_fee_amount: !own && req.platformFeeCents ? req.platformFeeCents : undefined,
           metadata: { paymentId: req.payment.id },
         },
-        metadata: { paymentId: req.payment.id },
+        metadata: { paymentId: req.payment.id, businessId: req.business.id },
         success_url: `${req.successUrl}${req.successUrl.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: req.cancelUrl,
       },
-      { stripeAccount: accountFor(req.business) },
+      opts,
     );
     return { providerRef: session.id, checkoutUrl: session.url! };
   },
 
   async confirm(payment, business) {
-    const session = await stripe().checkout.sessions.retrieve(payment.provider_ref, {}, { stripeAccount: accountFor(business) });
+    const { client, opts } = stripeFor(business);
+    const session = await client.checkout.sessions.retrieve(payment.provider_ref, {}, opts);
     const paymentIntent = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
     return { paid: session.payment_status === "paid", providerPaymentId: paymentIntent };
   },
 
   async refund(payment, business, amountCents) {
     if (!payment.provider_payment_id) throw badRequest("Payment has no Stripe payment intent to refund");
-    await stripe().refunds.create(
-      { payment_intent: payment.provider_payment_id, amount: amountCents, refund_application_fee: true },
-      { stripeAccount: accountFor(business) },
+    const { client, opts, own } = stripeFor(business);
+    await client.refunds.create(
+      { payment_intent: payment.provider_payment_id, amount: amountCents, ...(own ? {} : { refund_application_fee: true }) },
+      opts,
     );
   },
 };

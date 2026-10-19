@@ -8,7 +8,9 @@ import { h } from "../lib/http.js";
 import { handleSubscriptionEvent } from "../lib/platformBilling.js";
 import { applyPaidPackCheckout } from "../lib/usage.js";
 import { stripe } from "../payments/stripe.js";
-import { paypalFetch } from "../payments/paypal.js";
+import { credsFor as paypalCredsFor, paypalFetch } from "../payments/paypal.js";
+import { stripeFor } from "../payments/stripe.js";
+import { decryptJson } from "../lib/crypto.js";
 
 export const paymentsRouter = Router();
 
@@ -104,6 +106,76 @@ paymentsRouter.post("/webhooks/paypal", raw, h(async (req, res) => {
     const orderId = event.resource.supplementary_data?.related_ids?.order_id;
     const payment = orderId && one("SELECT id FROM payments WHERE provider = 'paypal' AND provider_ref = ?", orderId);
     if (payment) markPaid(payment.id, event.resource.id);
+  }
+  return { received: true };
+}));
+
+// ---------- Webhooks for businesses using their own Stripe / Square / PayPal keys ----------
+// Each business gets its own address (shown on its Payments tab) so we can check the signature with its secret.
+
+function businessCfg(bid: string) {
+  const business = one("SELECT * FROM businesses WHERE id = ?", bid);
+  return business ? { business, cfg: decryptJson<Record<string, string>>(business.payment_config) } : null;
+}
+
+/** Only settle payments that belong to the business whose webhook this is. */
+function markBusinessPaid(bid: string, where: string, ref: string, providerPaymentId?: string) {
+  const payment = one(`SELECT id FROM payments WHERE business_id = ? AND ${where} = ?`, bid, ref);
+  if (payment) markPaid(payment.id, providerPaymentId);
+}
+
+paymentsRouter.post("/webhooks/stripe/:bid", raw, h(async (req, res) => {
+  const found = businessCfg(req.params.bid as string);
+  if (!found?.cfg.stripeWebhookSecret || !found.cfg.stripeSecretKey) return void res.status(404).send("not configured");
+  let event: Stripe.Event;
+  try {
+    event = stripeFor(found.business).client.webhooks.constructEvent(req.body, req.headers["stripe-signature"] as string, found.cfg.stripeWebhookSecret);
+  } catch {
+    return void res.status(400).send("bad signature");
+  }
+  if (event.type === "checkout.session.completed") {
+    const s = event.data.object as Stripe.Checkout.Session;
+    if (s.payment_status === "paid") markBusinessPaid(found.business.id, "provider_ref", s.id, typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id);
+  }
+  return { received: true };
+}));
+
+paymentsRouter.post("/webhooks/square/:bid", raw, h(async (req, res) => {
+  const found = businessCfg(req.params.bid as string);
+  if (!found?.cfg.squareWebhookKey) return void res.status(404).send("not configured");
+  const signature = req.headers["x-square-hmacsha256-signature"] as string | undefined;
+  const url = `${config.apiUrl}/api/webhooks/square/${found.business.id}`;
+  const expected = createHmac("sha256", found.cfg.squareWebhookKey).update(url + req.body.toString("utf8")).digest("base64");
+  if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    return void res.status(400).send("bad signature");
+  }
+  const event = JSON.parse(req.body.toString("utf8"));
+  const sq = event.data?.object?.payment;
+  if (event.type === "payment.updated" && sq?.status === "COMPLETED") markBusinessPaid(found.business.id, "provider_ref", sq.order_id, sq.id);
+  return { received: true };
+}));
+
+paymentsRouter.post("/webhooks/paypal/:bid", raw, h(async (req, res) => {
+  const found = businessCfg(req.params.bid as string);
+  if (!found?.cfg.paypalWebhookId || !found.cfg.paypalClientId) return void res.status(404).send("not configured");
+  const event = JSON.parse(req.body.toString("utf8"));
+  const { creds } = paypalCredsFor(found.business);
+  const verification = await paypalFetch("/v1/notifications/verify-webhook-signature", {
+    method: "POST",
+    body: {
+      auth_algo: req.headers["paypal-auth-algo"], cert_url: req.headers["paypal-cert-url"],
+      transmission_id: req.headers["paypal-transmission-id"], transmission_sig: req.headers["paypal-transmission-sig"],
+      transmission_time: req.headers["paypal-transmission-time"], webhook_id: found.cfg.paypalWebhookId, webhook_event: event,
+    },
+  }, creds);
+  if (verification.verification_status !== "SUCCESS") return void res.status(400).send("bad signature");
+  if (event.event_type === "CHECKOUT.ORDER.APPROVED") {
+    const payment = one("SELECT id FROM payments WHERE business_id = ? AND provider_ref = ?", found.business.id, event.resource.id);
+    if (payment) await confirmPayment(payment.id);
+  }
+  if (event.event_type === "PAYMENT.CAPTURE.COMPLETED") {
+    const orderId = event.resource.supplementary_data?.related_ids?.order_id;
+    if (orderId) markBusinessPaid(found.business.id, "provider_ref", orderId, event.resource.id);
   }
   return { received: true };
 }));

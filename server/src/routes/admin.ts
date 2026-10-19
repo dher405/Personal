@@ -9,7 +9,9 @@ import { decryptJson, encryptJson } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { getPlan, getPlans } from "../lib/plans.js";
-import { createStripeOnboarding } from "../payments/stripe.js";
+import { createStripeOnboarding, stripeFor } from "../payments/stripe.js";
+import { squareFetch } from "../payments/square.js";
+import { credsFor as paypalCredsFor, paypalAccessToken } from "../payments/paypal.js";
 import { startPlanCheckout, openBillingPortal } from "../lib/platformBilling.js";
 import { chat } from "../ai/chat.js";
 import { aiChatEnabled } from "./public.js";
@@ -48,12 +50,7 @@ function publicSettings(b: Record<string, any>) {
   const cfg = decryptJson<Record<string, any>>(payment_config);
   return {
     ...rest,
-    payment_summary: {
-      stripeConnected: !!cfg.stripeAccountId,
-      squareConfigured: !!cfg.accessToken && !!cfg.locationId,
-      squareLocationId: cfg.locationId,
-      paypalMerchantId: cfg.merchantId,
-    },
+    payment_summary: paymentSummary(b, cfg),
     plan_details: getPlan(b.plan),
     ai_chat_active: aiChatEnabled(b),
     sms_usage: { used: meter(b, "sms").used, allowance: meter(b, "sms").limit, live: smsLive() },
@@ -298,28 +295,126 @@ adminRouter.get("/audit", h((req) => all("SELECT * FROM audit_log WHERE business
 
 // ---------- Payment provider setup ----------
 
+const mask = (v?: string) => (v ? `••••${v.slice(-4)}` : "");
+
+/** What the Payments tab shows: which mode each provider is in, masked keys, and the webhook addresses to paste. */
+function paymentSummary(b: Record<string, any>, cfg: Record<string, any>) {
+  return {
+    platform: { stripe: !!config.stripe.secretKey, paypal: !!(config.paypal.clientId && config.paypal.clientSecret) },
+    stripeMode: cfg.stripeSecretKey ? "keys" : "connect",
+    stripeConnected: !!cfg.stripeAccountId,
+    stripeKey: mask(cfg.stripeSecretKey),
+    stripeWebhookSecret: mask(cfg.stripeWebhookSecret),
+    squareConfigured: !!cfg.accessToken && !!cfg.locationId,
+    squareToken: mask(cfg.accessToken),
+    squareLocationId: cfg.locationId ?? "",
+    squareEnv: cfg.squareEnv || config.square.env,
+    squareWebhookKey: mask(cfg.squareWebhookKey),
+    paypalMode: cfg.paypalClientId ? "own" : "platform",
+    paypalMerchantId: cfg.merchantId ?? "",
+    paypalClientId: cfg.paypalClientId ?? "",
+    paypalClientSecret: mask(cfg.paypalClientSecret),
+    paypalEnv: cfg.paypalEnv || "live",
+    paypalWebhookId: cfg.paypalWebhookId ?? "",
+    webhooks: {
+      stripe: `${config.apiUrl}/api/webhooks/stripe/${b.id}`,
+      square: `${config.apiUrl}/api/webhooks/square/${b.id}`,
+      paypal: `${config.apiUrl}/api/webhooks/paypal/${b.id}`,
+    },
+  };
+}
+
+// Secret fields left blank keep what's already saved, so admins never have to retype them.
+const keep = (next: string | undefined, prev: string | undefined) => (next && next.trim() ? next.trim() : prev);
+
 adminRouter.put("/payment-provider", h(async (req) => {
   const body = parse(z.discriminatedUnion("provider", [
     z.object({ provider: z.literal("none") }),
     z.object({ provider: z.literal("mock") }),
-    z.object({ provider: z.literal("stripe") }),
-    z.object({ provider: z.literal("square"), accessToken: z.string().min(10), locationId: z.string().min(3) }),
-    z.object({ provider: z.literal("paypal"), merchantId: z.string().min(5) }),
+    z.object({
+      provider: z.literal("stripe"), mode: z.enum(["connect", "keys"]).default("connect"),
+      secretKey: z.string().optional(), webhookSecret: z.string().optional(),
+    }),
+    z.object({
+      provider: z.literal("square"), accessToken: z.string().optional(), locationId: z.string().min(3),
+      squareEnv: z.enum(["sandbox", "production"]).optional(), webhookKey: z.string().optional(),
+    }),
+    z.object({
+      provider: z.literal("paypal"), mode: z.enum(["platform", "own"]).default("platform"),
+      merchantId: z.string().optional(), clientId: z.string().optional(), clientSecret: z.string().optional(),
+      paypalEnv: z.enum(["sandbox", "live"]).optional(), webhookId: z.string().optional(),
+    }),
   ]), req.body);
   const b = business(req);
   const cfg = decryptJson<Record<string, any>>(b.payment_config);
-  if (body.provider === "mock" && config.isProduction && !config.demoMode) throw badRequest("Mock payments are disabled in production");
+  if (body.provider === "mock" && config.isProduction && !config.demoMode) throw badRequest("Test mode payments are turned off on this platform");
   let onboardingUrl: string | undefined;
-  if (body.provider === "stripe") {
+
+  if (body.provider === "stripe" && body.mode === "keys") {
+    cfg.stripeSecretKey = keep(body.secretKey, cfg.stripeSecretKey);
+    cfg.stripeWebhookSecret = keep(body.webhookSecret, cfg.stripeWebhookSecret);
+    if (!cfg.stripeSecretKey?.startsWith("sk_") && !cfg.stripeSecretKey?.startsWith("rk_")) throw badRequest("Enter your Stripe secret key (starts with sk_live_ or sk_test_)");
+  } else if (body.provider === "stripe") {
+    delete cfg.stripeSecretKey;
+    delete cfg.stripeWebhookSecret;
+    if (!config.stripe.secretKey) throw badRequest("Stripe Connect isn't available on this platform yet. Choose \"my own Stripe keys\" instead.");
     const result = await createStripeOnboarding(cfg.stripeAccountId, req.user!.email, `${config.webUrl}/admin/${b.id}/payments`);
     cfg.stripeAccountId = result.accountId;
     onboardingUrl = result.url;
   }
-  if (body.provider === "square") Object.assign(cfg, { accessToken: body.accessToken, locationId: body.locationId });
-  if (body.provider === "paypal") cfg.merchantId = body.merchantId;
+  if (body.provider === "square") {
+    cfg.accessToken = keep(body.accessToken, cfg.accessToken);
+    cfg.locationId = body.locationId.trim();
+    cfg.squareEnv = body.squareEnv ?? cfg.squareEnv;
+    cfg.squareWebhookKey = keep(body.webhookKey, cfg.squareWebhookKey);
+    if (!cfg.accessToken) throw badRequest("Enter your Square access token");
+  }
+  if (body.provider === "paypal" && body.mode === "own") {
+    cfg.paypalClientId = keep(body.clientId, cfg.paypalClientId);
+    cfg.paypalClientSecret = keep(body.clientSecret, cfg.paypalClientSecret);
+    cfg.paypalEnv = body.paypalEnv ?? cfg.paypalEnv ?? "live";
+    cfg.paypalWebhookId = keep(body.webhookId, cfg.paypalWebhookId);
+    if (!cfg.paypalClientId || !cfg.paypalClientSecret) throw badRequest("Enter your PayPal client ID and secret");
+  } else if (body.provider === "paypal") {
+    for (const k of ["paypalClientId", "paypalClientSecret", "paypalEnv", "paypalWebhookId"]) delete cfg[k];
+    cfg.merchantId = keep(body.merchantId, cfg.merchantId);
+    if (!cfg.merchantId) throw badRequest("Enter your PayPal merchant ID");
+    if (!config.paypal.clientId) throw badRequest("PayPal by merchant ID isn't available on this platform yet. Choose \"my own PayPal app\" instead.");
+  }
   run("UPDATE businesses SET payment_provider = ?, payment_config = ? WHERE id = ?", body.provider, encryptJson(cfg), b.id);
-  audit(actor(req), b.id, "payments.provider_changed", { provider: body.provider });
+  audit(actor(req), b.id, "payments.provider_changed", { provider: body.provider, mode: (body as any).mode });
   return { settings: publicSettings(business(req)), onboardingUrl };
+}));
+
+/** "Test connection" on the Payments tab: one harmless call with the saved keys. */
+adminRouter.post("/payment-provider/test", h(async (req) => {
+  const b = business(req);
+  try {
+    if (b.payment_provider === "stripe") {
+      const { client, opts, own } = stripeFor(b);
+      if (own) {
+        const acct = await client.accounts.retrieveCurrent();
+        return { ok: true, message: `Connected to your Stripe account ${acct.settings?.dashboard?.display_name ?? acct.email ?? acct.id}${acct.charges_enabled ? "" : " (not activated for payments yet)"}` };
+      }
+      const acct = await client.accounts.retrieve(opts.stripeAccount!);
+      return acct.charges_enabled
+        ? { ok: true, message: "Stripe is connected and can take payments" }
+        : { ok: false, message: "Stripe is connected, but setup isn't finished. Click Save payment settings to continue in Stripe." };
+    }
+    if (b.payment_provider === "square") {
+      const { json, cfg } = await squareFetch(b, `/v2/locations/${encodeURIComponent(decryptJson<any>(b.payment_config).locationId)}`);
+      return { ok: true, message: `Connected to Square location "${json.location?.name}" (${cfg.squareEnv || config.square.env})` };
+    }
+    if (b.payment_provider === "paypal") {
+      const { creds, own, merchantId } = paypalCredsFor(b);
+      await paypalAccessToken(creds);
+      return { ok: true, message: own ? `Your PayPal app is working (${creds.env})` : `PayPal is ready for merchant ID ${merchantId}` };
+    }
+    if (b.payment_provider === "mock") return { ok: true, message: "Test mode: bookings 'pay' instantly with no real money" };
+    return { ok: false, message: "No online payment provider chosen" };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
 }));
 
 // ---------- Platform plan (what the business pays us) ----------

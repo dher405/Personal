@@ -2,6 +2,14 @@ import "dotenv/config";
 
 const env = process.env;
 
+/** Values saved on the super admin Settings page; installed by lib/platformSettings.ts at startup. */
+let savedSetting: (name: string) => string | undefined = () => undefined;
+export function installSettingsReader(reader: (name: string) => string | undefined) {
+  savedSetting = reader;
+}
+/** Settings page value, else environment variable, else the default. */
+const v = (name: string, fallback = "") => savedSetting(name) || env[name] || fallback;
+
 /**
  * Public URL the browser uses. Hosted environments supply it automatically:
  * Render sets RENDER_EXTERNAL_URL; in GitHub Codespaces the Vite port (5173) is
@@ -28,69 +36,85 @@ export const config = {
   encryptionKey: env.APP_ENCRYPTION_KEY ?? "",
   databasePath: env.DATABASE_PATH ?? "./slotwise.db",
   isProduction: env.NODE_ENV === "production",
-  ai: {
-    apiKey: env.ANTHROPIC_API_KEY ?? "",
-    model: env.AI_MODEL ?? "claude-opus-5-5",
-    effort: (env.AI_EFFORT ?? "low") as "low" | "medium" | "high" | "xhigh" | "max",
+  // Integration settings are getters: each read checks the super admin's Settings page first
+  // (stored encrypted in the database), then the environment. Changes apply without a redeploy.
+  get ai() {
+    return {
+      apiKey: v("ANTHROPIC_API_KEY"),
+      model: v("AI_MODEL", "claude-opus-5-5"),
+      effort: v("AI_EFFORT", "low") as "low" | "medium" | "high" | "xhigh" | "max",
+    };
   },
-  stripe: {
-    secretKey: env.STRIPE_SECRET_KEY ?? "",
-    webhookSecret: env.STRIPE_WEBHOOK_SECRET ?? "",
-    // Stripe signs "connected accounts" webhooks (businesses' customer payments) with a separate secret.
-    connectWebhookSecret: env.STRIPE_CONNECT_WEBHOOK_SECRET ?? "",
+  get stripe() {
+    return {
+      secretKey: v("STRIPE_SECRET_KEY"),
+      webhookSecret: v("STRIPE_WEBHOOK_SECRET"),
+      // Stripe signs "connected accounts" webhooks (businesses' customer payments) with a separate secret.
+      connectWebhookSecret: v("STRIPE_CONNECT_WEBHOOK_SECRET"),
+    };
   },
-  square: {
-    env: env.SQUARE_ENV ?? "sandbox",
-    webhookSignatureKey: env.SQUARE_WEBHOOK_SIGNATURE_KEY ?? "",
-    webhookUrl: env.SQUARE_WEBHOOK_URL ?? "",
+  get square() {
+    return {
+      env: v("SQUARE_ENV", "sandbox"),
+      webhookSignatureKey: v("SQUARE_WEBHOOK_SIGNATURE_KEY"),
+      webhookUrl: v("SQUARE_WEBHOOK_URL", `${this.apiUrl}/api/webhooks/square`),
+    };
   },
-  email: {
-    // EMAIL_FROM must be a sender your provider has verified, e.g. "Slotwise <no-reply@yourdomain.com>".
-    from: env.EMAIL_FROM ?? "Slotwise <no-reply@example.com>",
-    resendApiKey: env.RESEND_API_KEY ?? "",
-    postmarkToken: env.POSTMARK_SERVER_TOKEN ?? "",
+  get email() {
+    return {
+      // EMAIL_FROM must be a sender your provider has verified, e.g. "Slotwise <no-reply@yourdomain.com>".
+      from: v("EMAIL_FROM", "Slotwise <no-reply@example.com>"),
+      resendApiKey: v("RESEND_API_KEY"),
+      postmarkToken: v("POSTMARK_SERVER_TOKEN"),
+    };
   },
-  oauth: {
-    google: {
-      clientId: env.GOOGLE_CLIENT_ID ?? "",
-      clientSecret: env.GOOGLE_CLIENT_SECRET ?? "",
-      authUrl: env.GOOGLE_AUTH_URL ?? "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: env.GOOGLE_TOKEN_URL ?? "https://oauth2.googleapis.com/token",
-    },
-    microsoft: {
-      // Azure portal → App registrations; "Accounts in any organizational directory and personal Microsoft accounts".
-      clientId: env.MICROSOFT_CLIENT_ID ?? "",
-      clientSecret: env.MICROSOFT_CLIENT_SECRET ?? "",
-      authUrl: env.MICROSOFT_AUTH_URL ?? "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-      tokenUrl: env.MICROSOFT_TOKEN_URL ?? "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-    },
-    calendarApis: {
-      google: env.GOOGLE_CALENDAR_API ?? "https://www.googleapis.com/calendar/v3",
-      graph: env.MS_GRAPH_URL ?? "https://graph.microsoft.com/v1.0",
-    },
-    apple: {
-      // The Services ID (not the App ID) from developer.apple.com, e.g. com.slotwise.web
-      clientId: env.APPLE_SERVICES_ID ?? "",
-      teamId: env.APPLE_TEAM_ID ?? "",
-      keyId: env.APPLE_KEY_ID ?? "",
-      // Contents of the .p8 key; "\n" sequences are turned into newlines so it fits in one env var.
-      privateKey: (env.APPLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
-      authUrl: env.APPLE_AUTH_URL ?? "https://appleid.apple.com/auth/authorize",
-      tokenUrl: env.APPLE_TOKEN_URL ?? "https://appleid.apple.com/auth/token",
-    },
+  get oauth() {
+    return {
+      google: {
+        clientId: v("GOOGLE_CLIENT_ID"),
+        clientSecret: v("GOOGLE_CLIENT_SECRET"),
+        authUrl: v("GOOGLE_AUTH_URL", "https://accounts.google.com/o/oauth2/v2/auth"),
+        tokenUrl: v("GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token"),
+      },
+      microsoft: {
+        // Azure portal → App registrations; "Accounts in any organizational directory and personal Microsoft accounts".
+        clientId: v("MICROSOFT_CLIENT_ID"),
+        clientSecret: v("MICROSOFT_CLIENT_SECRET"),
+        authUrl: v("MICROSOFT_AUTH_URL", "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"),
+        tokenUrl: v("MICROSOFT_TOKEN_URL", "https://login.microsoftonline.com/common/oauth2/v2.0/token"),
+      },
+      calendarApis: {
+        google: v("GOOGLE_CALENDAR_API", "https://www.googleapis.com/calendar/v3"),
+        graph: v("MS_GRAPH_URL", "https://graph.microsoft.com/v1.0"),
+      },
+      apple: {
+        // The Services ID (not the App ID) from developer.apple.com, e.g. com.slotwise.web
+        clientId: v("APPLE_SERVICES_ID"),
+        teamId: v("APPLE_TEAM_ID"),
+        keyId: v("APPLE_KEY_ID"),
+        // Contents of the .p8 key; "\n" sequences are turned into newlines so it fits in one env var.
+        privateKey: v("APPLE_PRIVATE_KEY").replace(/\\n/g, "\n"),
+        authUrl: v("APPLE_AUTH_URL", "https://appleid.apple.com/auth/authorize"),
+        tokenUrl: v("APPLE_TOKEN_URL", "https://appleid.apple.com/auth/token"),
+      },
+    };
   },
-  twilio: {
-    accountSid: env.TWILIO_ACCOUNT_SID ?? "",
-    authToken: env.TWILIO_AUTH_TOKEN ?? "",
-    messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID ?? "",
-    fromNumber: env.TWILIO_FROM_NUMBER ?? "",
-    defaultCountryCode: env.SMS_DEFAULT_COUNTRY_CODE ?? "1",
+  get twilio() {
+    return {
+      accountSid: v("TWILIO_ACCOUNT_SID"),
+      authToken: v("TWILIO_AUTH_TOKEN"),
+      messagingServiceSid: v("TWILIO_MESSAGING_SERVICE_SID"),
+      fromNumber: v("TWILIO_FROM_NUMBER"),
+      defaultCountryCode: v("SMS_DEFAULT_COUNTRY_CODE", "1"),
+    };
   },
-  paypal: {
-    env: env.PAYPAL_ENV ?? "sandbox",
-    clientId: env.PAYPAL_CLIENT_ID ?? "",
-    clientSecret: env.PAYPAL_CLIENT_SECRET ?? "",
-    webhookId: env.PAYPAL_WEBHOOK_ID ?? "",
+  get paypal() {
+    return {
+      env: v("PAYPAL_ENV", "sandbox"),
+      clientId: v("PAYPAL_CLIENT_ID"),
+      clientSecret: v("PAYPAL_CLIENT_SECRET"),
+      webhookId: v("PAYPAL_WEBHOOK_ID"),
+    };
   },
 };
 
