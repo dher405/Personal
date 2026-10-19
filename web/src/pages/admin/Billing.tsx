@@ -82,7 +82,14 @@ export function Billing() {
   const [params] = useSearchParams();
   const action = useAction();
 
+  const current = plans?.find((p) => p.id === biz.plan);
+  const endsOn = biz.plan_ends_at ? DateTime.fromISO(biz.plan_ends_at).toLocaleString(DateTime.DATE_FULL) : null;
+
   const choose = (planId: string) => action.run(async () => {
+    const target = plans?.find((p) => p.id === planId);
+    if (target && !target.monthlyPriceCents && current?.monthlyPriceCents && !confirm(
+      `Move to ${target.name}? You keep ${current.name} and everything it includes until the end of the month you've already paid for, then move to ${target.name}. You won't be charged again.`,
+    )) return;
     const res = await api(`/admin/${biz.id}/billing/checkout`, { body: { planId } });
     if (res.applied) reloadBiz();
     else window.location.href = res.url;
@@ -92,6 +99,12 @@ export function Billing() {
     <div className="stack">
       {params.get("subscribed") && <div className="notice">Thanks! Your plan will update as soon as payment is confirmed.</div>}
       {params.get("pack") && <div className="notice">Thanks! Your extra uses are added as soon as payment is confirmed.</div>}
+      {endsOn && current && (
+        <div className="notice row" style={{ justifyContent: "space-between" }}>
+          <span>Your {current.name} plan ends on <b>{endsOn}</b>. You keep everything it includes until then, then move to Starter, and you won't be charged again.</span>
+          <button disabled={action.busy} onClick={() => action.run(async () => { await api(`/admin/${biz.id}/billing/keep`, { method: "POST" }); reloadBiz(); })}>Keep {current.name}</button>
+        </div>
+      )}
       <Usage />
       {action.error && <div className="error">{action.error}</div>}
       <div className="grid">
@@ -106,7 +119,10 @@ export function Billing() {
               <li>{p.smsPerMonth.toLocaleString()} text messages / month</li>
               {p.aiChat && <li>{p.aiMessagesPerMonth.toLocaleString()} AI assistant messages / month</li>}
             </ul>
-            {p.id === biz.plan ? <span className="badge ok">Current plan ({biz.plan_status})</span> : <button className="primary" disabled={action.busy} onClick={() => choose(p.id)}>Switch to {p.name}</button>}
+            {p.id === biz.plan
+              ? <span className="badge ok">Current plan ({endsOn ? `ends ${endsOn}` : biz.plan_status})</span>
+              : endsOn && !p.monthlyPriceCents ? <span className="badge">Starts {endsOn}</span>
+              : <button className="primary" disabled={action.busy} onClick={() => choose(p.id)}>Switch to {p.name}</button>}
           </div>
         ))}
       </div>

@@ -104,7 +104,16 @@ async function chargeAutoTopUp(creditId: string) {
       customer: business.platform_customer_id, amount: credit.price_cents, currency: "usd",
       description: `Auto top-up: ${credit.quantity} ${METRIC_LABEL[credit.metric as Metric]} (${credit.period})`,
       metadata: { businessId: business.id, creditId },
+      subscription: business.platform_subscription_id ?? undefined,
     });
+    // A plan that's set to end gets no further invoice, so bill the top-up now with the plan's card.
+    if (business.plan_ends_at && business.platform_subscription_id) {
+      const invoice = await stripe().invoices.create({
+        customer: business.platform_customer_id, subscription: business.platform_subscription_id, pending_invoice_items_behavior: "include",
+      });
+      await stripe().invoices.finalizeInvoice(invoice.id!);
+      await stripe().invoices.pay(invoice.id!);
+    }
     run("UPDATE usage_credits SET charge_status = 'charged', external_ref = ? WHERE id = ?", item.id, creditId);
   } catch (err) {
     run("UPDATE usage_credits SET charge_status = 'failed' WHERE id = ?", creditId);

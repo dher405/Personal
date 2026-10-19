@@ -47,7 +47,7 @@ superRouter.get("/businesses/:id", h((req) => {
     business: {
       id: b.id, name: b.name, slug: b.slug, plan: b.plan, plan_status: b.plan_status, suspended: !!b.suspended,
       created_at: b.created_at, payment_provider: b.payment_provider, auto_topup: !!b.auto_topup,
-      platform_customer_id: b.platform_customer_id, platform_subscription_id: b.platform_subscription_id,
+      platform_customer_id: b.platform_customer_id, platform_subscription_id: b.platform_subscription_id, plan_ends_at: b.plan_ends_at,
     },
     stripeMode: config.stripe.secretKey ? (config.stripe.secretKey.startsWith("sk_live") ? "live" : "test") : "off",
     admins: all(

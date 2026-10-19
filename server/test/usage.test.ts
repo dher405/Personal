@@ -130,3 +130,33 @@ test("super admin: edit packs, grant credits, see each business's usage", async 
   assert.deepEqual(row.usage.map((m: any) => m.metric), ["bookings", "sms", "ai"]);
   assert.equal((await api("POST", `/api/super/businesses/${bid}/credits`, { metric: "sms", quantity: 5 }, owner)).status, 403);
 });
+
+test("moving to Starter keeps the paid plan until the paid period ends", async () => {
+  const { handleSubscriptionEvent } = await import("../src/lib/platformBilling.js");
+  run("UPDATE businesses SET plan = 'pro', platform_subscription_id = 'sub_test', plan_ends_at = NULL WHERE id = ?", bid);
+  const periodEnd = Math.floor(Date.now() / 1000) + 20 * 86400;
+  const sub = (extra: Record<string, unknown>) => ({
+    id: "sub_test", status: "active", metadata: { businessId: bid, planId: "pro" },
+    cancel_at_period_end: false, cancel_at: null, items: { data: [{ current_period_end: periodEnd }] }, ...extra,
+  });
+  const event = (type: string, extra: Record<string, unknown> = {}) => ({ type, data: { object: sub(extra) } }) as any;
+
+  // Cancelled from the billing portal (or by choosing Starter): still Pro, with an end date.
+  handleSubscriptionEvent(event("customer.subscription.updated", { cancel_at_period_end: true, cancel_at: periodEnd }));
+  let b = (await api("GET", `/api/admin/${bid}`)).body;
+  assert.equal(b.plan, "pro");
+  assert.equal(b.plan_ends_at, new Date(periodEnd * 1000).toISOString());
+
+  // Changing their mind clears it.
+  assert.equal((await api("POST", `/api/admin/${bid}/billing/keep`)).status, 200);
+  assert.equal((await api("GET", `/api/admin/${bid}`)).body.plan_ends_at, null);
+
+  // The period ends: Stripe deletes the subscription and they move to Starter.
+  handleSubscriptionEvent(event("customer.subscription.updated", { cancel_at_period_end: true, cancel_at: periodEnd }));
+  handleSubscriptionEvent(event("customer.subscription.deleted", { status: "canceled" }));
+  b = (await api("GET", `/api/admin/${bid}`)).body;
+  assert.equal(b.plan, "free");
+  assert.equal(b.plan_ends_at, null);
+  assert.equal(b.platform_subscription_id, null);
+  run("UPDATE businesses SET plan = 'pro' WHERE id = ?", bid);
+});

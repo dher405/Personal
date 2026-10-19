@@ -12,7 +12,7 @@ import { getPlan, getPlans } from "../lib/plans.js";
 import { stripeFor } from "../payments/stripe.js";
 import { squareFetch } from "../payments/square.js";
 import { credsFor as paypalCredsFor, paypalAccessToken } from "../payments/paypal.js";
-import { startPlanCheckout, openBillingPortal } from "../lib/platformBilling.js";
+import { keepPlan, startPlanCheckout, openBillingPortal } from "../lib/platformBilling.js";
 import { chat } from "../ai/chat.js";
 import { aiChatEnabled } from "./public.js";
 import { config } from "../config.js";
@@ -427,6 +427,11 @@ adminRouter.put("/usage/auto-topup", h((req) => {
 adminRouter.post("/billing/checkout", h(async (req) => {
   const body = parse(z.object({ planId: z.string() }), req.body);
   return startPlanCheckout(business(req), body.planId, req.user!, actor(req));
+}));
+
+adminRouter.post("/billing/keep", h(async (req) => {
+  await keepPlan(business(req), actor(req));
+  return { ok: true };
 }));
 
 adminRouter.post("/billing/portal", h(async (req) => ({ url: await openBillingPortal(business(req)) })));

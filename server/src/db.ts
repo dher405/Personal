@@ -267,6 +267,8 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 
 // --- Usage-based pricing: metered uses, purchased credits, alerts sent ---
 addColumn("businesses", "auto_topup", "INTEGER NOT NULL DEFAULT 0");
+// When a paid plan is set to end (moving to Starter), it runs until this time (ISO, UTC), then the business moves to Starter.
+addColumn("businesses", "plan_ends_at", "TEXT");
 db.exec(`
 CREATE TABLE IF NOT EXISTS usage_events (
   business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,

@@ -37,6 +37,7 @@ export function SuperBusinessPanel() {
             </select>
           </label>
           <span className="badge">{b.plan_status}</span>
+          {b.plan_ends_at && <span className="badge">moves to Starter {new Date(b.plan_ends_at).toLocaleDateString()}</span>}
           {b.auto_topup && <span className="badge ok">auto top-up on</span>}
         </div>
         {data.stripeMode === "off" ? (
