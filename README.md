@@ -99,6 +99,23 @@ Tests: `npm test`. They cover texting (opt-in, reminder timing, C/R/X replies, S
 
 Each message from a customer is an API call that you pay for. The public chat is rate-limited per IP (`server/src/lib/rateLimit.ts`). Server-side model fallbacks are enabled, so if a request is declined it is retried on a fallback model instead of failing.
 
+## Booking on a business's own website
+
+Each business gets copy-paste code under **Admin → Add to website**, with a live preview:
+
+```html
+<!-- Calendar inside the page (grows to fit, no scrollbar) -->
+<script src="https://<your-slotwise>/embed.js" data-business="riverside-music" async></script>
+<!-- A button that opens the calendar in a pop-up; data-mode="floating" pins it bottom-right -->
+<script src="https://<your-slotwise>/embed.js" data-business="riverside-music" data-mode="button" data-label="Book a lesson" async></script>
+```
+
+Options: `data-service` (open on one service), `data-color`, `data-theme="dark"`, `data-header="0"` (hide the name and address), `data-target="#selector"`. Any element with `data-slotwise-open` opens the pop-up. A completed booking fires a `slotwise:booked` event on the host page, for analytics.
+
+- The embed loads `/embed/<slug>`, the booking page without the site header. Payment opens in a new tab, because checkout pages refuse to run inside another site.
+- Only `/embed/*` may be framed by other sites. Every other page sends `frame-ancestors 'self'`, so admin screens can't be clickjacked.
+- Customers get confirmation, reschedule and cancellation **emails** (via Resend/Postmark) in addition to the optional texts.
+
 ## Sign-in, password resets, Google and Apple
 
 - **Forgot password:** the sign-in page has a "Forgot password?" link. People enter their email and get a single-use link that expires in 1 hour. Using it signs them out on every other device. The reply is the same whether or not the email has an account, so the form can't be used to find out who's registered.

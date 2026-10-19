@@ -11,6 +11,7 @@ import { AiSettings } from "./AiSettings";
 import { Billing } from "./Billing";
 import { Settings } from "./Settings";
 import { SmsSettings } from "./SmsSettings";
+import { Embed } from "./Embed";
 
 interface BizCtx { biz: any; reloadBiz: () => void; base: string }
 const BusinessContext = createContext<BizCtx>(null!);
@@ -34,7 +35,7 @@ export function AdminHome() {
 
 const tabs = [
   ["", "Dashboard"], ["bookings", "Bookings"], ["services", "Services & prices"], ["staff", "Staff & hours"],
-  ["payments", "Payments"], ["sms", "Text messages"], ["ai", "AI assistant"], ["billing", "Plan & billing"], ["settings", "Settings"],
+  ["payments", "Payments"], ["sms", "Text messages"], ["ai", "AI assistant"], ["billing", "Plan & billing"], ["settings", "Settings"], ["website", "Add to website"],
 ];
 
 export function AdminLayout() {
@@ -65,6 +66,7 @@ export function AdminLayout() {
           <Route path="ai" element={<AiSettings />} />
           <Route path="billing" element={<Billing />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="website" element={<Embed />} />
         </Routes>
       </div>
     </BusinessContext.Provider>

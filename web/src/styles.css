@@ -5,13 +5,20 @@
   --radius: 10px; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
   color-scheme: light;
 }
+/* Dark theme: follows the device, unless a page pins a theme (embeds default to light to match the host site). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0f1115; --surface: #171a21; --text: #e8eaee; --muted: #9aa2ae; --border: #2a2f39;
     --accent: #6a9bff; --accent-text: #0b0d12; --accent-soft: #1d2a45;
     --ok: #4cc38a; --ok-soft: #12291e; --warn: #f0b44c; --warn-soft: #2e2512; --bad: #ff7b70; --bad-soft: #351816;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --surface: #171a21; --text: #e8eaee; --muted: #9aa2ae; --border: #2a2f39;
+  --accent: #6a9bff; --accent-text: #0b0d12; --accent-soft: #1d2a45;
+  --ok: #4cc38a; --ok-soft: #12291e; --warn: #f0b44c; --warn-soft: #2e2512; --bad: #ff7b70; --bad-soft: #351816;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
@@ -86,6 +93,8 @@ th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: 
 .btn.social { justify-content: center; padding: 10px 14px; font-weight: 600; text-decoration: none; }
 .btn.social.google { background: #fff; color: #1f1f1f; border-color: #747775; }
 .btn.social.apple { background: #000; color: #fff; border-color: #000; }
-@media (prefers-color-scheme: dark) { .btn.social.apple { background: #fff; color: #000; border-color: #fff; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.social.apple { background: #fff; color: #000; border-color: #fff; } }
 .divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .85rem; }
 .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+html[data-embed] body { background: transparent; }
+html[data-embed] .container { padding: 8px; }

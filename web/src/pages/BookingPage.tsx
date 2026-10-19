@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { DateTime } from "luxon";
 import { api, money } from "../api";
 import { useAuth } from "../auth";
@@ -7,11 +7,45 @@ import { useAction, useApi } from "../hooks";
 import { SlotPicker, type Slot } from "../components/SlotPicker";
 import { ChatWidget } from "../components/ChatWidget";
 
-export function BookingPage() {
+/** Tells the page that embeds us (embed.js) how tall we are, so its iframe never shows a scrollbar. */
+function useReportHeight(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled || window.parent === window) return;
+    // The body's own height, not the document's: the document is never shorter than the frame, so it could only grow.
+    const send = () => window.parent.postMessage({ type: "slotwise:height", height: Math.ceil(document.body.getBoundingClientRect().height) }, "*");
+    const observer = new ResizeObserver(send);
+    observer.observe(document.body);
+    send();
+    return () => observer.disconnect();
+  }, [enabled]);
+}
+
+/**
+ * The public booking page. `embed` = shown inside a business's own website (via /embed/:slug):
+ * no site header, chat inline instead of floating, and payment/manage links open a new tab
+ * because checkout pages refuse to run inside someone else's page.
+ */
+export function BookingPage({ embed = false }: { embed?: boolean }) {
   const { slug } = useParams();
+  const [params] = useSearchParams();
   const { session } = useAuth();
   const { data: biz, error } = useApi<any>(`/public/businesses/${slug}`);
-  const [serviceId, setServiceId] = useState<string | null>(null);
+  const [serviceId, setServiceId] = useState<string | null>(params.get("service"));
+  const [pendingPayment, setPendingPayment] = useState<{ url: string; booking: any } | null>(null);
+  useReportHeight(embed);
+  useEffect(() => {
+    if (!embed) return;
+    const root = document.documentElement;
+    root.dataset.embed = "1";
+    root.dataset.theme = params.get("theme") === "dark" ? "dark" : "light";
+    if (params.get("color")?.match(/^#?[0-9a-f]{6}$/i)) {
+      const c = `#${params.get("color")!.replace("#", "")}`;
+      root.style.setProperty("--accent", c);
+      root.style.setProperty("--accent-soft", `color-mix(in srgb, ${c} 12%, white)`);
+    }
+  }, [embed]);
+  const showHeader = !embed || params.get("header") !== "0";
+  const newTab = embed ? { target: "_blank", rel: "noopener" } : {};
   const [staffId, setStaffId] = useState<string>("");
   const [slot, setSlot] = useState<Slot | null>(null);
   const [details, setDetails] = useState({ name: session?.user.name ?? "", email: session?.user.email ?? "", phone: "", notes: "" });
@@ -25,6 +59,7 @@ export function BookingPage() {
 
   const service = biz.services.find((s: any) => s.id === serviceId);
   const staffForService = biz.staff.filter((s: any) => s.service_ids.includes(serviceId));
+  const manageHref = (b: any) => `/manage/${b.manageToken}`;
 
   const book = () => run(async () => {
     const res = await api(`/public/businesses/${slug}/bookings`, {
@@ -33,9 +68,27 @@ export function BookingPage() {
         phone: details.phone || undefined, notes: details.notes || undefined, smsOptIn: smsOptIn && !!details.phone,
       },
     });
-    if (res.paymentUrl) window.location.href = res.paymentUrl;
+    if (embed && window.parent !== window) window.parent.postMessage({ type: "slotwise:booked", code: res.booking.code, status: res.booking.status }, "*");
+    if (res.paymentUrl && embed) setPendingPayment({ url: res.paymentUrl, booking: res.booking });
+    else if (res.paymentUrl) window.location.href = res.paymentUrl;
     else setDone(res.booking);
   });
+
+  if (pendingPayment) {
+    const b = pendingPayment.booking;
+    return (
+      <div className="container narrow">
+        <div className="card stack">
+          <h1>Almost done: pay to confirm</h1>
+          <p>{b.serviceName} with {b.staffName}<br />
+            <strong>{DateTime.fromISO(b.start).setZone(biz.timezone).toLocaleString(DateTime.DATETIME_HUGE)}</strong></p>
+          <p>We're holding this time for 30 minutes. Payment opens in a new tab.</p>
+          <a className="btn primary" href={pendingPayment.url} target="_blank" rel="noopener">Pay now</a>
+          <a className="small" href={manageHref(b)} target="_blank" rel="noopener">View or change this booking</a>
+        </div>
+      </div>
+    );
+  }
 
   if (done) {
     return (
@@ -45,7 +98,9 @@ export function BookingPage() {
           <p>{done.serviceName} with {done.staffName}<br />
             <strong>{DateTime.fromISO(done.start).setZone(biz.timezone).toLocaleString(DateTime.DATETIME_HUGE)}</strong></p>
           <p>Booking code: <strong>{done.code}</strong>. A confirmation goes to {done.customerEmail}.</p>
-          <Link to={`/manage/${done.manageToken}`} className="btn">Manage or reschedule</Link>
+          {embed
+            ? <a href={manageHref(done)} className="btn" {...newTab}>Manage or reschedule</a>
+            : <Link to={manageHref(done)} className="btn">Manage or reschedule</Link>}
         </div>
       </div>
     );
@@ -53,11 +108,25 @@ export function BookingPage() {
 
   return (
     <div className="container">
-      <div className="card">
-        <h1>{biz.name}</h1>
-        <p className="muted">{biz.description}</p>
-        <div className="small muted">{[biz.address, biz.phone].filter(Boolean).join(" · ")}</div>
-      </div>
+      {showHeader && (
+        <div className="card">
+          <h1>{biz.name}</h1>
+          <p className="muted">{biz.description}</p>
+          <div className="small muted">{[biz.address, biz.phone].filter(Boolean).join(" · ")}</div>
+        </div>
+      )}
+      {embed && biz.aiChat && (
+        <div className="card stack">
+          <button onClick={() => setChatOpen(!chatOpen)}>{chatOpen ? "Hide chat" : "💬 Prefer to chat? Book with our assistant"}</button>
+          {chatOpen && (
+            <ChatWidget
+              endpoint={`/public/businesses/${slug}/chat`}
+              storageKey={`chat:${slug}`}
+              greeting={`Hi! I'm ${biz.name}'s booking assistant. What would you like to book? I can also move or cancel an existing appointment.`}
+            />
+          )}
+        </div>
+      )}
 
       <div className="grid" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
         <div className="card stack">
@@ -116,7 +185,7 @@ export function BookingPage() {
         )}
       </div>
 
-      {biz.aiChat && (
+      {!embed && biz.aiChat && (
         <>
           {chatOpen && (
             <div className="card chat-panel">

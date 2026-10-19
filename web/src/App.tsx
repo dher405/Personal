@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth";
 import { Home } from "./pages/Home";
 import { Account, AuthCallback, ForgotPassword, Login, Register, ResetPassword, StartBusiness } from "./pages/AuthPages";
@@ -47,7 +47,7 @@ function RequireRole({ roles, children }: { roles: string[]; children: ReactElem
 export function App() {
   return (
     <>
-      <TopBar />
+      {!useLocation().pathname.startsWith("/embed/") && <TopBar />}
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
@@ -58,6 +58,7 @@ export function App() {
         <Route path="/start-business" element={<RequireRole roles={["customer", "admin", "superadmin"]}><StartBusiness /></RequireRole>} />
         <Route path="/account" element={<RequireRole roles={["customer", "admin", "superadmin"]}><Account /></RequireRole>} />
         <Route path="/b/:slug" element={<BookingPage />} />
+        <Route path="/embed/:slug" element={<BookingPage embed />} />
         <Route path="/manage/:token" element={<ManageBooking />} />
         <Route path="/me" element={<RequireRole roles={["customer", "admin", "superadmin"]}><MyBookings /></RequireRole>} />
         <Route path="/admin" element={<RequireRole roles={["admin", "superadmin"]}><AdminHome /></RequireRole>} />

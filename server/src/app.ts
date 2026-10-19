@@ -33,7 +33,12 @@ export function createApp() {
   if (existsSync(webDist)) {
     app.use(express.static(webDist, { index: false, maxAge: "1h" }));
     // Client-side routes (/b/:slug, /admin/...) all load index.html.
-    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(`${webDist}/index.html`, { maxAge: 0 }));
+    app.get(/^\/(?!api\/).*/, (req, res) => {
+      // Only the booking widget may be framed by other sites; everything else (admin!) refuses, which blocks clickjacking.
+      res.setHeader("Content-Security-Policy", req.path.startsWith("/embed/") ? "frame-ancestors *" : "frame-ancestors 'self'");
+      if (!req.path.startsWith("/embed/")) res.setHeader("X-Frame-Options", "SAMEORIGIN");
+      res.sendFile(`${webDist}/index.html`, { maxAge: 0 });
+    });
   }
   app.use(errorHandler);
   return app;

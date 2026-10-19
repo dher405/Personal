@@ -34,7 +34,7 @@ export function Dashboard() {
           {checklist.map((c) => (
             <div key={c.to} className="row">{c.done ? "✅" : "⬜"} <Link to={`${base}/${c.to}`}>{c.label}</Link></div>
           ))}
-          <p className="small muted">Share your booking link: <code>{window.location.origin}/b/{biz.slug}</code></p>
+          <p className="small muted">Share your booking link: <code>{window.location.origin}/b/{biz.slug}</code> or <Link to={`${base}/website`}>add booking to your website</Link>.</p>
         </div>
       )}
       <div className="card">
