@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { optionalAuth, requireAuth, requireSuperAdmin } from "./lib/auth.js";
 import { errorHandler } from "./lib/http.js";
@@ -25,6 +27,14 @@ export function createApp() {
   app.use("/api/admin/:bid", requireAuth, adminRouter);
   app.use("/api/super", requireAuth, requireSuperAdmin, superRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
+
+  // In a single-service deploy the API also serves the built website (web/dist).
+  const webDist = fileURLToPath(new URL("../../web/dist", import.meta.url));
+  if (existsSync(webDist)) {
+    app.use(express.static(webDist, { index: false, maxAge: "1h" }));
+    // Client-side routes (/b/:slug, /admin/...) all load index.html.
+    app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(`${webDist}/index.html`, { maxAge: 0 }));
+  }
   app.use(errorHandler);
   return app;
 }

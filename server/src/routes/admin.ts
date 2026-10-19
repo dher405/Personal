@@ -305,7 +305,7 @@ adminRouter.put("/payment-provider", h(async (req) => {
   ]), req.body);
   const b = business(req);
   const cfg = decryptJson<Record<string, any>>(b.payment_config);
-  if (body.provider === "mock" && config.isProduction) throw badRequest("Mock payments are disabled in production");
+  if (body.provider === "mock" && config.isProduction && !config.demoMode) throw badRequest("Mock payments are disabled in production");
   let onboardingUrl: string | undefined;
   if (body.provider === "stripe") {
     const result = await createStripeOnboarding(cfg.stripeAccountId, req.user!.email, `${config.webUrl}/admin/${b.id}/payments`);

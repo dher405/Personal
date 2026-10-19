@@ -1,0 +1,12 @@
+{
+  "name": "Slotwise",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "postCreateCommand": "npm install && cp -n server/.env.example server/.env && npm run seed --workspace server",
+  "postAttachCommand": "npm run dev",
+  "forwardPorts": [5173, 4000],
+  "portsAttributes": {
+    "5173": { "label": "Slotwise website", "onAutoForward": "openBrowser" },
+    "4000": { "label": "API", "onAutoForward": "silent" }
+  },
+  "containerEnv": { "SUPERADMIN_EMAIL": "super@slotwise.test", "SUPERADMIN_PASSWORD": "super1234" }
+}

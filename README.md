@@ -46,6 +46,29 @@ Every change to a booking, price, refund, or plan is written to an audit log, al
   Admins get a text when customers book, confirm, reschedule or cancel, plus an optional morning agenda. Staff can get an "up next" text before each appointment. Admins can text **TODAY** or **TOMORROW** for their schedule, or (on AI plans) ask in plain words to move or cancel bookings. STOP/START opt-outs are respected. Each plan includes a monthly text allowance that you set as super admin.
 - **Refunds.** Full or partial, from the admin bookings screen, the payments list, the super admin payments list, or the mobile admin. If a customer cancels online within the policy window, they're refunded automatically.
 
+## Try it online
+
+### Option 1: a public test website on Render (free)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dher405/Personal/tree/slotwise)
+
+1. Click the button and sign in to Render with GitHub. Allow Render to access the `Personal` repository when asked.
+2. Enter a **SUPERADMIN_EMAIL** and **SUPERADMIN_PASSWORD** (your platform login). Leave the optional keys blank for now.
+3. Click **Apply**. The first build takes about 3–5 minutes. Your site will be at `https://slotwise-xxxx.onrender.com` (shown at the top of the service page).
+4. Log in with your super admin account, or as the demo business: `owner@demo.test` / `demo1234`.
+
+What to know about the free test setup (`render.yaml`):
+- It runs in **demo mode**: the sample business is created automatically, payments are test mode (no real money), and texts are simulated (see Admin → Text messages).
+- The free plan **sleeps after 15 minutes without visitors**; the first visit after that takes about a minute to wake it.
+- The free plan's **data is wiped on every restart or redeploy**; the demo data comes back each time. To keep data, switch the service to the Starter plan and add the disk described at the bottom of `render.yaml`.
+- The demo business login is public knowledge. Anyone who finds the URL can sign in as it. Fine for testing; remove `DEMO_MODE` before real use.
+- Every push to the `slotwise` branch redeploys automatically.
+- To turn on the AI chat or real texts, add `ANTHROPIC_API_KEY` or the `TWILIO_*` keys under the service's **Environment** tab.
+
+### Option 2: run it inside GitHub (Codespaces, private to you)
+
+On GitHub, switch to the `slotwise` branch, then click **Code → Codespaces → Create codespace on slotwise**. It installs everything, creates the demo data, starts the app, and opens the website in a new tab (allow pop-ups if it doesn't). Super admin: `super@slotwise.test` / `super1234`. Personal accounts get free Codespaces hours each month; stop the codespace when you're done.
+
 ## Quick start (local)
 
 Needs Node 22.13 or later.

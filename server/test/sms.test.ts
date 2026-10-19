@@ -115,11 +115,14 @@ test("reply R offers three times; replying 2 moves the booking", async () => {
 });
 
 test("reply X cancels; unknown text gets the menu (no AI key here)", async () => {
+  const b = bookAt(10); // well outside the 24h cancellation window, and now the booking we last texted about
+  await settle();
   const [menu] = await handleInboundSms(CUSTOMER, "what time is it again?");
   assert.match(menu.body, /Reply C to confirm, R to reschedule, or X to cancel/);
   const [cancelled] = await handleInboundSms(CUSTOMER, "X");
   assert.match(cancelled.body, /is cancelled/);
-  assert.equal(one("SELECT status FROM bookings WHERE id = ?", cancelled.booking_id)!.status, "cancelled");
+  assert.equal(cancelled.booking_id, b.id);
+  assert.equal(one("SELECT status FROM bookings WHERE id = ?", b.id)!.status, "cancelled");
 });
 
 test("STOP opts out of all texts; START opts back in", async () => {

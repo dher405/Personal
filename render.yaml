@@ -1,0 +1,49 @@
+# Render Blueprint: one web service that runs the API and serves the website.
+# Deploy: https://render.com/deploy?repo=https://github.com/dher405/Personal/tree/slotwise
+services:
+  - type: web
+    name: slotwise
+    runtime: node
+    plan: free
+    branch: slotwise
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start --workspace server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22.22.0"
+      - key: NODE_ENV
+        value: production
+      # Test deployment: sample business, test-mode payments, simulated texts.
+      # Remove before taking real customers.
+      - key: DEMO_MODE
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: APP_ENCRYPTION_KEY
+        generateValue: true
+      # You'll be asked for these when you create the Blueprint.
+      - key: SUPERADMIN_EMAIL
+        sync: false
+      - key: SUPERADMIN_PASSWORD
+        sync: false
+      # Optional: fill in later under the service's Environment tab.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_MESSAGING_SERVICE_SID
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+    # The free plan's disk is wiped on every restart/deploy (demo data is re-created).
+    # To keep data, switch to plan: starter and uncomment:
+    # disk:
+    #   name: data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # and add an env var DATABASE_PATH=/var/data/slotwise.db

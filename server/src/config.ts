@@ -2,10 +2,28 @@ import "dotenv/config";
 
 const env = process.env;
 
+/**
+ * Public URL the browser uses. Hosted environments supply it automatically:
+ * Render sets RENDER_EXTERNAL_URL; in GitHub Codespaces the Vite port (5173) is
+ * forwarded and proxies /api, so the API shares that origin. Local `localhost`
+ * values from .env.example are ignored there because the browser can't reach them.
+ */
+function hostedUrl() {
+  if (env.RENDER_EXTERNAL_URL) return env.RENDER_EXTERNAL_URL;
+  if (env.CODESPACE_NAME && env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN) {
+    return `https://${env.CODESPACE_NAME}-5173.${env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}`;
+  }
+  return null;
+}
+const pick = (value: string | undefined, fallback: string) =>
+  value && !(hostedUrl() && value.includes("localhost")) ? value : hostedUrl() ?? fallback;
+
 export const config = {
   port: Number(env.PORT ?? 4000),
-  webUrl: env.PUBLIC_WEB_URL ?? "http://localhost:5173",
-  apiUrl: env.PUBLIC_API_URL ?? "http://localhost:4000",
+  webUrl: pick(env.PUBLIC_WEB_URL, "http://localhost:5173"),
+  apiUrl: pick(env.PUBLIC_API_URL, "http://localhost:4000"),
+  /** Test deployments: allow fake "test mode" payments and auto-create demo data. Never set on a real launch. */
+  demoMode: env.DEMO_MODE === "true",
   jwtSecret: env.JWT_SECRET ?? "dev-only-secret",
   encryptionKey: env.APP_ENCRYPTION_KEY ?? "",
   databasePath: env.DATABASE_PATH ?? "./slotwise.db",
