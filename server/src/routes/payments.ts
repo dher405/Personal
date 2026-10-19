@@ -37,10 +37,17 @@ paymentsRouter.post("/payments/sync/:token", h(async (req) => {
 const raw = express.raw({ type: "*/*", limit: "1mb" });
 
 paymentsRouter.post("/webhooks/stripe", raw, h(async (req, res) => {
-  let event: Stripe.Event;
-  try {
-    event = stripe().webhooks.constructEvent(req.body, req.headers["stripe-signature"] as string, config.stripe.webhookSecret);
-  } catch {
+  // Accept either endpoint's signing secret: the platform account's or the connected accounts'.
+  let event: Stripe.Event | undefined;
+  for (const secret of [config.stripe.webhookSecret, config.stripe.connectWebhookSecret].filter(Boolean)) {
+    try {
+      event = stripe().webhooks.constructEvent(req.body, req.headers["stripe-signature"] as string, secret);
+      break;
+    } catch {
+      // try the next secret
+    }
+  }
+  if (!event) {
     res.status(400).send("bad signature");
     return;
   }

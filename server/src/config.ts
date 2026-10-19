@@ -36,6 +36,8 @@ export const config = {
   stripe: {
     secretKey: env.STRIPE_SECRET_KEY ?? "",
     webhookSecret: env.STRIPE_WEBHOOK_SECRET ?? "",
+    // Stripe signs "connected accounts" webhooks (businesses' customer payments) with a separate secret.
+    connectWebhookSecret: env.STRIPE_CONNECT_WEBHOOK_SECRET ?? "",
   },
   square: {
     env: env.SQUARE_ENV ?? "sandbox",

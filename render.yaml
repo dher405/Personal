@@ -61,6 +61,8 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      - key: STRIPE_CONNECT_WEBHOOK_SECRET
+        sync: false
     # The free plan's disk is wiped on every restart/deploy (demo data is re-created).
     # To keep data, switch to plan: starter and uncomment:
     # disk:

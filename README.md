@@ -202,7 +202,9 @@ All businesses share one platform number. When a customer replies, it's matched 
 ### Stripe (recommended; also bills your subscriptions)
 1. Create a Stripe account and enable **Connect** (Express accounts).
 2. Set `STRIPE_SECRET_KEY` in `server/.env`.
-3. Add a webhook endpoint `https://<your-api>/api/webhooks/stripe` that listens to **both** your own account and **connected accounts**, with these events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Put its signing secret in `STRIPE_WEBHOOK_SECRET`.
+3. Add **two** webhook endpoints, both with the URL `https://<your-api>/api/webhooks/stripe`:
+   - "Your account": events `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Put its signing secret in `STRIPE_WEBHOOK_SECRET`.
+   - "Connected accounts": event `checkout.session.completed`. Put its signing secret in `STRIPE_CONNECT_WEBHOOK_SECRET`.
 4. Enable the customer portal under Stripe → Settings → Billing → Customer portal.
 5. Businesses pick **Stripe** in Admin → Payments and are sent to Stripe to finish onboarding.
 
