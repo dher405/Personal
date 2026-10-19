@@ -53,7 +53,8 @@ function Overview() {
       <div className="card"><div className="muted small">Users</div><div className="stat">{data.users}</div></div>
       <div className="card"><div className="muted small">Bookings (30d)</div><div className="stat">{data.bookings30d}</div></div>
       <div className="card"><div className="muted small">Customer payments (30d)</div><div className="stat">{money(data.gmv30dCents)}</div></div>
-      <div className="card"><div className="muted small">Platform fees earned (30d)</div><div className="stat">{money(data.platformFees30dCents)}</div></div>
+      <div className="card"><div className="muted small">Paying businesses</div><div className="stat">{data.payingBusinesses}</div></div>
+      <div className="card"><div className="muted small">Booking packs sold (30d)</div><div className="stat">{money(data.packs30dCents)}</div></div>
       <div className="card"><div className="muted small">Texts sent (30d)</div><div className="stat">{data.sms30d}</div></div>
       <div className="card"><div className="muted small">By plan</div>{data.byPlan.map((p: any) => <div key={p.plan}>{p.plan}: <strong>{p.n}</strong></div>)}</div>
     </div>
@@ -181,18 +182,17 @@ function Plans() {
   const update = (i: number, patch: object) => setData(data.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   return (
     <div className="card stack">
-      <p className="muted small">What businesses pay you: a monthly subscription (billed through your Stripe account) and/or a percentage of each online customer payment.</p>
+      <p className="muted small">What businesses pay you: a monthly price for a set number of bookings (plus texts and AI messages), billed through your Stripe account. Businesses that need more buy the packs below or upgrade. You take nothing from their customers' payments.</p>
       {action.error && <div className="error">{action.error}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Fee per payment (%)</th><th>Max staff</th><th>Online bookings / mo</th><th>Texts / mo</th><th>AI chat</th><th>AI messages / mo</th><th /></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Max staff</th><th>Bookings / mo</th><th>Texts / mo</th><th>AI chat</th><th>AI messages / mo</th><th /></tr></thead>
           <tbody>
             {data.map((p, i) => (
               <tr key={i}>
                 <td><input value={p.id} disabled={p.id === "free"} onChange={(e) => update(i, { id: e.target.value })} /></td>
                 <td><input value={p.name} onChange={(e) => update(i, { name: e.target.value })} /></td>
                 <td><input type="number" step="0.01" value={p.monthlyPriceCents / 100} onChange={(e) => update(i, { monthlyPriceCents: Math.round(Number(e.target.value) * 100) })} /></td>
-                <td><input type="number" step="0.01" value={p.platformFeeBps / 100} onChange={(e) => update(i, { platformFeeBps: Math.round(Number(e.target.value) * 100) })} /></td>
                 <td><input type="number" value={p.maxStaff} onChange={(e) => update(i, { maxStaff: Number(e.target.value) })} /></td>
                 <td><input type="number" min={0} value={p.bookingsPerMonth} onChange={(e) => update(i, { bookingsPerMonth: Number(e.target.value) })} /></td>
                 <td><input type="number" min={0} value={p.smsPerMonth} onChange={(e) => update(i, { smsPerMonth: Number(e.target.value) })} /></td>
@@ -205,7 +205,7 @@ function Plans() {
         </table>
       </div>
       <div className="row">
-        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, platformFeeBps: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 0, smsPerMonth: 0, aiMessagesPerMonth: 0 }])}>+ Add plan</button>
+        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 0, smsPerMonth: 0, aiMessagesPerMonth: 0 }])}>+ Add plan</button>
         <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { setData(await api("/super/plans", { method: "PUT", body: data })); setSaved(true); setTimeout(() => setSaved(false), 2000); })}>Save plans</button>
         {saved && <span className="notice small">Saved</span>}
       </div>
@@ -215,7 +215,7 @@ function Plans() {
   );
 }
 
-const PACK_METRICS: Record<string, string> = { bookings: "Online bookings", sms: "Text messages", ai: "AI assistant messages" };
+const PACK_METRICS: Record<string, string> = { bookings: "Bookings", sms: "Text messages", ai: "AI assistant messages" };
 
 /** Top-up packs businesses can buy when they run low. */
 function Packs() {
@@ -273,14 +273,13 @@ function AllPayments() {
     <div className="card table-wrap">
       {action.error && <div className="error">{action.error}</div>}
       <table>
-        <thead><tr><th>Date</th><th>Business</th><th>Booking</th><th>Provider</th><th>Amount</th><th>Platform fee</th><th>Status</th><th /></tr></thead>
+        <thead><tr><th>Date</th><th>Business</th><th>Booking</th><th>Provider</th><th>Amount</th><th>Status</th><th /></tr></thead>
         <tbody>
           {data?.map((p) => (
             <tr key={p.id}>
               <td className="small">{DateTime.fromSQL(p.created_at, { zone: "utc" }).toLocal().toFormat("d LLL yyyy")}</td>
               <td>{p.business_name}</td><td>{p.booking_code}</td><td>{p.provider}</td>
               <td>{money(p.amount_cents, p.currency)}{p.refunded_cents ? <div className="small muted">−{money(p.refunded_cents, p.currency)}</div> : null}</td>
-              <td>{money(p.platform_fee_cents, p.currency)}</td>
               <td><span className="badge">{p.status}</span></td>
               <td>{["paid", "partially_refunded"].includes(p.status) && <button className="danger" onClick={() => refund(p)}>Refund</button>}</td>
             </tr>

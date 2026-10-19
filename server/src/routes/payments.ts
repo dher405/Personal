@@ -38,80 +38,27 @@ paymentsRouter.post("/payments/sync/:token", h(async (req) => {
 // Webhooks need the raw body for signature checks, so they get their own parser.
 const raw = express.raw({ type: "*/*", limit: "1mb" });
 
+/** The platform's own Stripe account: plan subscriptions and pack purchases (what businesses pay you). */
 paymentsRouter.post("/webhooks/stripe", raw, h(async (req, res) => {
-  // Accept either endpoint's signing secret: the platform account's or the connected accounts'.
-  let event: Stripe.Event | undefined;
-  for (const secret of [config.stripe.webhookSecret, config.stripe.connectWebhookSecret].filter(Boolean)) {
-    try {
-      event = stripe().webhooks.constructEvent(req.body, req.headers["stripe-signature"] as string, secret);
-      break;
-    } catch {
-      // try the next secret
-    }
-  }
-  if (!event) {
+  let event: Stripe.Event;
+  try {
+    event = stripe().webhooks.constructEvent(req.body, req.headers["stripe-signature"] as string, config.stripe.webhookSecret);
+  } catch {
     res.status(400).send("bad signature");
     return;
   }
-  // Connect events (customer payments on a business's account) carry event.account.
-  if (event.type === "checkout.session.completed" && event.account) {
-    const s = event.data.object as Stripe.Checkout.Session;
-    if (s.metadata?.paymentId && s.payment_status === "paid") {
-      markPaid(s.metadata.paymentId, typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id);
-    }
-  } else if (event.type === "checkout.session.completed" && (event.data.object as Stripe.Checkout.Session).metadata?.kind === "usage_pack") {
-    const s = event.data.object as Stripe.Checkout.Session;
-    if (s.payment_status === "paid") applyPaidPackCheckout(s.id, s.metadata as Record<string, string>);
+  const session = event.data.object as Stripe.Checkout.Session;
+  if (event.type === "checkout.session.completed" && session.metadata?.kind === "usage_pack") {
+    if (session.payment_status === "paid") applyPaidPackCheckout(session.id, session.metadata as Record<string, string>);
   } else {
     handleSubscriptionEvent(event);
   }
   return { received: true };
 }));
 
-paymentsRouter.post("/webhooks/square", raw, h(async (req, res) => {
-  const signature = req.headers["x-square-hmacsha256-signature"] as string | undefined;
-  const expected = createHmac("sha256", config.square.webhookSignatureKey).update(config.square.webhookUrl + req.body.toString("utf8")).digest("base64");
-  if (!config.square.webhookSignatureKey || !signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-    res.status(400).send("bad signature");
-    return;
-  }
-  const event = JSON.parse(req.body.toString("utf8"));
-  const sqPayment = event.data?.object?.payment;
-  if (event.type === "payment.updated" && sqPayment?.status === "COMPLETED") {
-    const payment = one("SELECT id FROM payments WHERE provider = 'square' AND provider_ref = ?", sqPayment.order_id);
-    if (payment) markPaid(payment.id, sqPayment.id);
-  }
-  return { received: true };
-}));
-
-paymentsRouter.post("/webhooks/paypal", raw, h(async (req, res) => {
-  const event = JSON.parse(req.body.toString("utf8"));
-  const verification = await paypalFetch("/v1/notifications/verify-webhook-signature", {
-    method: "POST",
-    body: {
-      auth_algo: req.headers["paypal-auth-algo"], cert_url: req.headers["paypal-cert-url"],
-      transmission_id: req.headers["paypal-transmission-id"], transmission_sig: req.headers["paypal-transmission-sig"],
-      transmission_time: req.headers["paypal-transmission-time"], webhook_id: config.paypal.webhookId, webhook_event: event,
-    },
-  });
-  if (verification.verification_status !== "SUCCESS") {
-    res.status(400).send("bad signature");
-    return;
-  }
-  if (event.event_type === "CHECKOUT.ORDER.APPROVED") {
-    const payment = one("SELECT id FROM payments WHERE provider = 'paypal' AND provider_ref = ?", event.resource.id);
-    if (payment) await confirmPayment(payment.id); // captures the order
-  }
-  if (event.event_type === "PAYMENT.CAPTURE.COMPLETED") {
-    const orderId = event.resource.supplementary_data?.related_ids?.order_id;
-    const payment = orderId && one("SELECT id FROM payments WHERE provider = 'paypal' AND provider_ref = ?", orderId);
-    if (payment) markPaid(payment.id, event.resource.id);
-  }
-  return { received: true };
-}));
-
-// ---------- Webhooks for businesses using their own Stripe / Square / PayPal keys ----------
-// Each business gets its own address (shown on its Payments tab) so we can check the signature with its secret.
+// ---------- Customer-payment webhooks: one address per business ----------
+// Businesses take payments with their own Stripe / Square / PayPal accounts, so each gets its own address
+// (shown on its Payments tab) and its signature is checked with that business's own secret.
 
 function businessCfg(bid: string) {
   const business = one("SELECT * FROM businesses WHERE id = ?", bid);
@@ -129,7 +76,7 @@ paymentsRouter.post("/webhooks/stripe/:bid", raw, h(async (req, res) => {
   if (!found?.cfg.stripeWebhookSecret || !found.cfg.stripeSecretKey) return void res.status(404).send("not configured");
   let event: Stripe.Event;
   try {
-    event = stripeFor(found.business).client.webhooks.constructEvent(req.body, req.headers["stripe-signature"] as string, found.cfg.stripeWebhookSecret);
+    event = stripeFor(found.business).webhooks.constructEvent(req.body, req.headers["stripe-signature"] as string, found.cfg.stripeWebhookSecret);
   } catch {
     return void res.status(400).send("bad signature");
   }
@@ -159,7 +106,7 @@ paymentsRouter.post("/webhooks/paypal/:bid", raw, h(async (req, res) => {
   const found = businessCfg(req.params.bid as string);
   if (!found?.cfg.paypalWebhookId || !found.cfg.paypalClientId) return void res.status(404).send("not configured");
   const event = JSON.parse(req.body.toString("utf8"));
-  const { creds } = paypalCredsFor(found.business);
+  const creds = paypalCredsFor(found.business);
   const verification = await paypalFetch("/v1/notifications/verify-webhook-signature", {
     method: "POST",
     body: {

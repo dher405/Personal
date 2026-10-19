@@ -27,16 +27,12 @@ Every change to a booking, price, refund, or plan is written to an audit log, al
   - *Customer chat* on the booking page and in the app. It lists services, finds real open times, books, reschedules, and cancels. To change an existing booking it needs the booking code plus the email used to book. The owner can add custom instructions such as "new students start with the trial lesson".
   - *Admin assistant* in the admin screen, for requests like "what's on tomorrow?", "move Jo to Friday at 3", "block Alex off Monday", or "raise the 60-minute lesson to $80".
   - The AI can't issue refunds. Moving money is always a person's decision.
-- **Customer payments** go straight into the business's own account through hosted checkout pages, so card details never reach your server:
-  - **Stripe** (Stripe Connect Express, with your platform fee taken as an application fee)
-  - **Square** (payment links)
-  - **PayPal** (Orders v2, with platform fees through PayPal's partner program)
-  - **Test mode** (fake payments for development)
+- **Customer payments** go into each business's *own* Stripe, Square or PayPal account (its keys, entered on its Payments tab) through hosted checkout pages, so card details never reach your server. The platform takes nothing from these payments.
+  - **Stripe** (Checkout), **Square** (payment links), **PayPal** (Orders v2), or **Test mode** (fake payments for development).
   - Unpaid bookings hold their slot for 30 minutes and are then released.
-- **Platform billing** (how you get paid):
-  - Monthly plans billed through *your* Stripe account (Stripe Billing, with a customer portal for invoices and cards).
-  - A percentage fee on each online customer payment, set per plan.
-  - Plans also set the staff limit and whether AI is included. The super admin edits all of this in **Super admin → Plans & fees**.
+- **Platform billing** (how you get paid): businesses pay for a monthly number of bookings.
+  - Monthly plans billed through *your* Stripe account (Stripe Billing, with a customer portal for invoices and cards), plus booking packs or auto top-ups when they need more.
+  - Plans also set texts and AI messages included, the staff limit, and whether AI is included. The super admin edits all of this in **Super admin → Plans & fees**.
 - **Text messages (Twilio).** Customers who tick "Text me" when booking get a confirmation, reminders (24h and 2h before by default; configurable), and notices when something changes. They can reply:
   - **C** to confirm they'll come (the booking shows "✓ customer confirmed").
   - **R** to get three new times, then **1**, **2** or **3** to move to one.
@@ -118,23 +114,23 @@ Options: `data-service` (open on one service), `data-color`, `data-theme="dark"`
 
 ## Settings pages (no environment variables needed)
 
-**Super admin → Settings** holds every integration's keys: Stripe (plus both webhook secrets), PayPal and Square platform apps, email (Resend/Postmark), Twilio, Anthropic, Google, Microsoft and Apple.
+**Super admin → Settings** holds every integration's keys: Stripe (for billing businesses), email (Resend/Postmark), Twilio, Anthropic, Google, Microsoft and Apple.
 - Each section shows the exact webhook or redirect URLs to paste into that provider, and most have a **Test connection** button.
 - Values are stored encrypted with `APP_ENCRYPTION_KEY`, only the last 4 characters are ever shown, and changes apply immediately.
 - A value saved there overrides the environment variable of the same name, so existing Render setups keep working.
 - Only `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `DATABASE_PATH` and the site URL stay in the environment. **Saved settings live in the database, so use a persistent disk.**
 
 **Business → Payments** lets each business choose how it's paid:
-- **Stripe:** Connect through the platform (platform fee collected), or its own Stripe secret key + webhook secret.
+- **Stripe:** its own secret key and webhook signing secret.
 - **Square:** access token, location ID, environment, and an optional webhook signature key.
-- **PayPal:** merchant ID through the platform app (fee collected), or its own PayPal REST app (client ID, secret, webhook ID).
+- **PayPal:** its own PayPal REST app (client ID, secret, environment, webhook ID).
 
-Each business gets its own webhook address (`/api/webhooks/{stripe,square,paypal}/<businessId>`), checked with its own secret, and a **Test connection** button. With a business's own keys, no per-payment platform fee can be taken.
+Each business gets its own webhook address (`/api/webhooks/{stripe,square,paypal}/<businessId>`), checked with its own secret, and a **Test connection** button.
 
 ## Super admin workspace
 
 The super admin has no separate "Admin" section. **Super admin → Businesses → (a business)** opens the same tabs the business's admins see (Dashboard, Bookings, Services, Staff, Payments, texts, calendars, AI, billing, settings, website). The extra **Account & billing ★** tab shows:
-- fees earned, packs bought, and their customers' payments this month
+- their plan price, packs bought, and their customers' payments this month
 - the plan (set it directly for comped accounts) and links to the business's Stripe customer and subscription
 - usage, and free credits you've given
 - the business's admins (add, remove, send a reset link)
@@ -145,12 +141,18 @@ Links that point at `/admin/...` (emails, Stripe and calendar redirects) forward
 
 ## Usage-based pricing
 
-Each plan includes a monthly allowance of **online bookings**, **text messages** and **AI assistant messages**, plus a staff limit and a fee on online payments. The super admin edits all of this in **Plans & fees**, along with the top-up **packs** businesses can buy.
+Businesses pay by the number of bookings they take. Each plan includes a monthly allowance of **bookings**, **text messages** and **AI assistant messages**, plus a staff limit. There is no fee on customer payments. The super admin edits all of this in **Plans & fees**, along with the top-up **packs** businesses can buy.
 
-- **What counts:** online bookings (web, app, AI chat) count once they're confirmed, which for paid bookings means once payment completes. Bookings an admin enters never count. Texts count when sent (customer texts and the business's own alerts). AI counts one per message the assistant answers.
-- **When it runs out:** that feature pauses until the business adds more. Online booking shows customers a "please call" notice, texts are skipped (and logged), and AI chat is hidden. Meters reset on the 1st of each month (UTC).
+- **What counts:**
+  - **Bookings:** every booking (online, app, AI chat, or entered by the business) counts once it's confirmed; for an online booking that requires payment, that means once payment completes. A booking that's later cancelled still counts; an online booking whose payment never completed doesn't.
+  - **Texts:** count when sent (customer texts and the business's own alerts).
+  - **AI:** counts one per message the assistant answers.
+- **When it runs out:** that feature pauses until the business adds more.
+  - New bookings pause: customers see a "please call" notice, and the business's own booking form says to add more or upgrade.
+  - Texts are skipped (and logged), and AI chat is hidden.
+  - Meters reset on the 1st of each month (UTC).
 - **Tracker:** usage bars on the business's Dashboard and Plan & billing page, and per business in Super admin → Businesses.
-- **Alerts:** every admin of the business is emailed once per meter per month at 80% and at 100%. The email offers the right pack, the next plan that includes more, and auto top-up.
+- **Warnings before the wall:** every admin of the business is emailed once per meter per month at 80%, 90% and 100%, and a banner shows on every admin tab from 80%. The email offers the right pack, the next plan that includes more, and auto top-up.
 - **Packs:** paid through Stripe Checkout (`checkout.session.completed` with `metadata.kind = usage_pack`), and they apply to the current month. **Auto top-up** adds the smallest pack the moment a meter runs out and puts it on the business's next subscription invoice (a Stripe invoice item). It needs a card on file. The super admin can also **Give credits** for free.
 
 ## Calendars
@@ -214,30 +216,15 @@ All businesses share one platform number. When a customer replies, it's matched 
 
 ## Setting up payments
 
-### Stripe (recommended; also bills your subscriptions)
-1. Create a Stripe account and enable **Connect** (Express accounts).
-2. Set `STRIPE_SECRET_KEY` in `server/.env`.
-3. Add **two** webhook endpoints, both with the URL `https://<your-api>/api/webhooks/stripe`:
-   - "Your account": events `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. Put its signing secret in `STRIPE_WEBHOOK_SECRET`.
-   - "Connected accounts": event `checkout.session.completed`. Put its signing secret in `STRIPE_CONNECT_WEBHOOK_SECRET`.
-4. Enable the customer portal under Stripe → Settings → Billing → Customer portal.
-5. Businesses pick **Stripe** in Admin → Payments and are sent to Stripe to finish onboarding.
+**Your billing (Stripe).** This is how businesses pay you for plans and booking packs; all of it is entered in **Super admin → Settings → Stripe**.
+1. Create and activate a Stripe account (business details and bank account for payouts).
+2. Paste the **secret key** (Developers → API keys).
+3. Add one webhook: the URL shown in Settings, with events `checkout.session.completed`, `customer.subscription.updated` and `customer.subscription.deleted`. Paste its signing secret.
+4. Turn on the customer portal (Stripe → Settings → Billing → Customer portal) so businesses can manage cards and invoices.
 
-Locally: `stripe listen --forward-to localhost:4000/api/webhooks/stripe --forward-connect-to localhost:4000/api/webhooks/stripe`.
+Locally: `stripe listen --forward-to localhost:4000/api/webhooks/stripe`. If no Stripe key is set, plan changes and packs apply right away with no charge, which is useful for development.
 
-If `STRIPE_SECRET_KEY` isn't set, plan changes apply right away with no charge. This is useful for development.
-
-### Square
-- Each business pastes its Square **access token** and **location ID** in Admin → Payments. They're encrypted at rest with `APP_ENCRYPTION_KEY`.
-- Set `SQUARE_ENV=production` when you go live.
-- Webhook: `https://<your-api>/api/webhooks/square` for `payment.updated`, with `SQUARE_WEBHOOK_SIGNATURE_KEY` and `SQUARE_WEBHOOK_URL` set. Payments are also checked when the customer returns from checkout.
-- Platform fees on Square only work if businesses connect through **Square OAuth** (your Square app). With pasted personal tokens, no fee is collected.
-
-### PayPal
-- Create a PayPal REST app and set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `PAYPAL_ENV=live`.
-- Each business enters its **merchant ID**.
-- Webhook: `https://<your-api>/api/webhooks/paypal` for `CHECKOUT.ORDER.APPROVED` and `PAYMENT.CAPTURE.COMPLETED`; set `PAYPAL_WEBHOOK_ID`.
-- Taking a platform fee (`platform_fees`) requires approval for **PayPal Commerce Platform**. Without it, leave the fee at 0% for PayPal businesses, or bill them through the subscription instead.
+**Businesses' own payments.** Each business enters its own Stripe, Square or PayPal keys on its **Payments** tab. The tab shows numbered steps, that business's own webhook URL, and a Test connection button. The money goes straight to the business; the platform is not involved. Payments are confirmed when the customer returns from checkout, and the webhook confirms them as a backup.
 
 ## Mobile app
 
@@ -268,10 +255,9 @@ To publish to the App Store and Google Play, use EAS: `npx eas build` then `npx 
 
 - [ ] Run on a host with HTTPS (Render, Fly.io, Railway, AWS). Set `NODE_ENV=production`, `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `PUBLIC_WEB_URL`, and `PUBLIC_API_URL`. Serve `web/dist` from a CDN or static host.
 - [ ] **Database.** SQLite is fine for one server. To run several, move to Postgres; all SQL goes through `server/src/db.ts`.
-- [ ] **Email confirmations.** Texts go through Twilio; email in `server/src/lib/notify.ts` still only logs. Connect a provider such as Postmark or SendGrid.
 - [ ] **Twilio live setup and A2P 10DLC (or toll-free) registration**, as described above. Texts sent before registration will be blocked by US carriers.
 - [ ] **Email provider** (Resend or Postmark) so password-reset emails are delivered.
-- [ ] Switch Stripe, Square, and PayPal to live keys and register the webhooks above. Apply for PayPal Commerce Platform if you want PayPal fees.
+- [ ] Switch your Stripe billing keys to live and register the webhook above.
 - [ ] Terms of service, privacy policy, and refund policy pages. Your payment providers' platform agreements will ask for these.
 - [ ] Use a shared rate-limit store (Redis) if you run more than one API instance.
 - [ ] Currencies are assumed to have 2 decimal places. Zero-decimal currencies such as JPY need adjusting in `payments/types.ts`.

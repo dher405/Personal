@@ -49,15 +49,6 @@ export const config = {
     return {
       secretKey: v("STRIPE_SECRET_KEY"),
       webhookSecret: v("STRIPE_WEBHOOK_SECRET"),
-      // Stripe signs "connected accounts" webhooks (businesses' customer payments) with a separate secret.
-      connectWebhookSecret: v("STRIPE_CONNECT_WEBHOOK_SECRET"),
-    };
-  },
-  get square() {
-    return {
-      env: v("SQUARE_ENV", "sandbox"),
-      webhookSignatureKey: v("SQUARE_WEBHOOK_SIGNATURE_KEY"),
-      webhookUrl: v("SQUARE_WEBHOOK_URL", `${this.apiUrl}/api/webhooks/square`),
     };
   },
   get email() {
@@ -106,14 +97,6 @@ export const config = {
       messagingServiceSid: v("TWILIO_MESSAGING_SERVICE_SID"),
       fromNumber: v("TWILIO_FROM_NUMBER"),
       defaultCountryCode: v("SMS_DEFAULT_COUNTRY_CODE", "1"),
-    };
-  },
-  get paypal() {
-    return {
-      env: v("PAYPAL_ENV", "sandbox"),
-      clientId: v("PAYPAL_CLIENT_ID"),
-      clientSecret: v("PAYPAL_CLIENT_SECRET"),
-      webhookId: v("PAYPAL_WEBHOOK_ID"),
     };
   },
 };

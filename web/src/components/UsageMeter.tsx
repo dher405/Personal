@@ -2,7 +2,7 @@ export interface MeterReading { metric: string; label: string; used: number; inc
 
 const tone = (pct: number) => (pct >= 100 ? "var(--bad)" : pct >= 80 ? "var(--warn)" : "var(--ok)");
 
-/** One usage bar: "212 of 300 online bookings", coloured green → amber at 80% → red when used up. */
+/** One usage bar: "212 of 300 bookings", coloured green → amber at 80% → red when used up. */
 export function UsageMeter({ m, compact = false }: { m: MeterReading; compact?: boolean }) {
   const pct = Math.min(100, m.percent);
   return (

@@ -21,14 +21,8 @@ export function Dashboard() {
     { done: !!biz.ai_enabled, label: "Turn on the AI booking assistant (optional)", to: "ai" },
   ];
 
-  const low = (biz.usage ?? []).filter((m: any) => m.limit > 0 && m.percent >= 80);
   return (
     <div className="stack">
-      {low.length > 0 && (
-        <div className={low.some((m: any) => m.percent >= 100) ? "error" : "notice"} style={low.some((m: any) => m.percent >= 100) ? undefined : { background: "var(--warn-soft)", color: "var(--warn)" }}>
-          {low.map((m: any) => `${m.percent >= 100 ? "Used up" : `${m.percent}% used`}: ${m.label}`).join(" · ")}. <Link to={`${base}/billing`}>Add more or upgrade</Link>
-        </div>
-      )}
       <div className="grid">
         <div className="card"><div className="muted small">Upcoming bookings</div><div className="stat">{stats?.upcoming ?? "–"}</div></div>
         <div className="card"><div className="muted small">Bookings this month</div><div className="stat">{stats?.bookingsThisMonth ?? "–"}</div></div>

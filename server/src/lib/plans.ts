@@ -4,8 +4,6 @@ export interface Plan {
   id: string;
   name: string;
   monthlyPriceCents: number;
-  /** Percentage (in basis points, 100 = 1%) the platform keeps from each customer payment. */
-  platformFeeBps: number;
   maxStaff: number;
   aiChat: boolean;
   /** Monthly allowances (usage-based pricing). Packs or an upgrade add more; see lib/usage.ts. */
@@ -15,9 +13,9 @@ export interface Plan {
 }
 
 export const DEFAULT_PLANS: Plan[] = [
-  { id: "free", name: "Starter", monthlyPriceCents: 0, platformFeeBps: 300, maxStaff: 1, aiChat: false, bookingsPerMonth: 25, smsPerMonth: 50, aiMessagesPerMonth: 0 },
-  { id: "pro", name: "Pro", monthlyPriceCents: 2900, platformFeeBps: 100, maxStaff: 5, aiChat: true, bookingsPerMonth: 300, smsPerMonth: 500, aiMessagesPerMonth: 1000 },
-  { id: "business", name: "Business", monthlyPriceCents: 7900, platformFeeBps: 0, maxStaff: 50, aiChat: true, bookingsPerMonth: 2000, smsPerMonth: 2000, aiMessagesPerMonth: 5000 },
+  { id: "free", name: "Starter", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 25, smsPerMonth: 50, aiMessagesPerMonth: 0 },
+  { id: "pro", name: "Pro", monthlyPriceCents: 2900, maxStaff: 5, aiChat: true, bookingsPerMonth: 300, smsPerMonth: 500, aiMessagesPerMonth: 1000 },
+  { id: "business", name: "Business", monthlyPriceCents: 7900, maxStaff: 50, aiChat: true, bookingsPerMonth: 2000, smsPerMonth: 2000, aiMessagesPerMonth: 5000 },
 ];
 
 const ALLOWANCES = ["bookingsPerMonth", "smsPerMonth", "aiMessagesPerMonth"] as const;
@@ -28,7 +26,8 @@ export function getPlans(): Plan[] {
   const plans: Plan[] = row ? JSON.parse(row.value) : DEFAULT_PLANS;
   return plans.map((p) => {
     const d = DEFAULT_PLANS.find((x) => x.id === p.id);
-    const filled = { ...p };
+    // Plans saved when there was a per-payment fee still carry platformFeeBps; it's no longer used.
+    const { platformFeeBps: _unused, ...filled } = p as Plan & { platformFeeBps?: number };
     for (const k of ALLOWANCES) filled[k] = p[k] ?? d?.[k] ?? 0;
     return filled;
   });
@@ -62,8 +61,4 @@ export function savePlans(plans: Plan[]) {
 export function getPlan(id: string): Plan {
   const plans = getPlans();
   return plans.find((p) => p.id === id) ?? plans[0];
-}
-
-export function platformFeeFor(planId: string, amountCents: number) {
-  return Math.round((amountCents * getPlan(planId).platformFeeBps) / 10_000);
 }

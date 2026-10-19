@@ -45,32 +45,35 @@ before(async () => {
 });
 after(() => server.close());
 
-test("only online bookings count; alerts at 80% and 100%; booking pauses when used up", async () => {
-  await setProAllowance({ bookingsPerMonth: 5 });
-  for (let i = 0; i < 4; i++) assert.equal((await bookOnline(`u${i}@example.com`)).status, 200);
-  await settle();
+test("every booking counts; warnings at 80% and 90% before the limit; bookings pause at 100%", async () => {
+  await setProAllowance({ bookingsPerMonth: 10 });
   const alerts = () => all("SELECT threshold FROM usage_alerts WHERE business_id = ? AND metric = 'bookings' ORDER BY threshold", bid).map((r) => r.threshold);
-  assert.deepEqual(alerts(), [80], "80% alert at 4 of 5");
-
-  // An admin-entered booking is neither counted nor blocked.
-  const s = await nextSlot();
-  const admin = await api("POST", `/api/admin/${bid}/bookings`, { serviceId: svc, staffId: s.staffId, start: s.start, name: "Walk In", email: "walkin@example.com" });
-  assert.equal(admin.status, 200);
-  const usage = (await api("GET", `/api/admin/${bid}/usage`)).body;
-  const bookings = usage.meters.find((m: any) => m.metric === "bookings");
-  assert.equal(bookings.used, 4);
-  assert.equal(bookings.percent, 80);
+  const adminBook = async (email: string) => {
+    const s = await nextSlot();
+    return api("POST", `/api/admin/${bid}/bookings`, { serviceId: svc, staffId: s.staffId, start: s.start, name: "Walk In", email });
+  };
+  for (let i = 0; i < 4; i++) assert.equal((await bookOnline(`u${i}@example.com`)).status, 200);
+  for (let i = 0; i < 4; i++) assert.equal((await adminBook(`w${i}@example.com`)).status, 200);
+  await settle();
+  const bookings = (await api("GET", `/api/admin/${bid}/usage`)).body.meters.find((m: any) => m.metric === "bookings");
+  assert.equal(bookings.used, 8, "bookings the business enters count too");
+  assert.equal(bookings.label, "bookings");
+  assert.deepEqual(alerts(), [80], "first warning at 8 of 10");
 
   assert.equal((await bookOnline("u4@example.com")).status, 200);
   await settle();
-  assert.deepEqual(alerts(), [80, 100]);
+  assert.deepEqual(alerts(), [80, 90], "second warning before the limit");
+  assert.equal((await adminBook("w4@example.com")).status, 200);
+  await settle();
+  assert.deepEqual(alerts(), [80, 90, 100]);
+
   const blocked = await bookOnline("u5@example.com");
   assert.equal(blocked.status, 403);
   assert.match(blocked.body.error, /isn't taking online bookings right now\. Please call \(555\) 010-2020/);
+  const adminBlocked = await adminBook("w5@example.com");
+  assert.equal(adminBlocked.status, 403);
+  assert.match(adminBlocked.body.error, /used all the bookings in your plan this month/);
   assert.equal((await api("GET", "/api/public/businesses/riverside-music", undefined, "")).body.onlineBookingPaused, true);
-  // Still free for admins
-  const s2 = await nextSlot();
-  assert.equal((await api("POST", `/api/admin/${bid}/bookings`, { serviceId: svc, staffId: s2.staffId, start: s2.start, name: "Phone", email: "phone@example.com" })).status, 200);
 });
 
 test("buying a pack adds room for the rest of the month", async () => {
@@ -81,7 +84,7 @@ test("buying a pack adds room for the rest of the month", async () => {
   const after = (await api("GET", `/api/admin/${bid}/usage`)).body;
   const m = after.meters.find((x: any) => x.metric === "bookings");
   assert.equal(m.extra, pack.quantity * 2);
-  assert.equal(m.limit, 5 + pack.quantity * 2);
+  assert.equal(m.limit, 10 + pack.quantity * 2);
   assert.equal(after.purchases[0].source, "purchase");
   assert.equal((await bookOnline("after-pack@example.com")).status, 200);
   assert.equal((await api("GET", "/api/public/businesses/riverside-music", undefined, "")).body.onlineBookingPaused, false);

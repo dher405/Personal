@@ -64,14 +64,13 @@ test("settings: validation, audit without values, super admin only", async () =>
 });
 
 test("a business can use its own Stripe keys; its webhook confirms payments with its own secret", async () => {
-  const save = await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "stripe", mode: "keys", secretKey: "sk_test_ownkey1234", webhookSecret: "whsec_business_secret" }, owner);
+  const save = await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "stripe", secretKey: "sk_test_ownkey1234", webhookSecret: "whsec_business_secret" }, owner);
   assert.equal(save.status, 200);
   const sum = save.body.settings.payment_summary;
-  assert.equal(sum.stripeMode, "keys");
   assert.equal(sum.stripeKey, "••••1234");
   assert.equal(sum.webhooks.stripe, `http://api.test/api/webhooks/stripe/${bid}`);
   // Saving again with blank secrets keeps them.
-  const again = await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "stripe", mode: "keys", secretKey: "", webhookSecret: "" }, owner);
+  const again = await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "stripe", secretKey: "", webhookSecret: "" }, owner);
   assert.equal(again.body.settings.payment_summary.stripeKey, "••••1234");
 
   const b = one("SELECT * FROM bookings WHERE business_id = ? LIMIT 1", bid) ?? null;
@@ -101,12 +100,16 @@ test("Square with the business's own keys and webhook signature key", async () =
   assert.equal(one("SELECT status FROM payments WHERE id = ?", pid)!.status, "paid");
 });
 
-test("PayPal own-app mode needs both ID and secret; platform mode needs the platform app", async () => {
-  assert.equal((await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "paypal", mode: "own", clientId: "only-id" }, owner)).status, 400);
-  const ok = await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "paypal", mode: "own", clientId: "pp-id", clientSecret: "pp-secret-abcd", paypalEnv: "sandbox", webhookId: "WH-1" }, owner);
-  assert.equal(ok.body.settings.payment_summary.paypalMode, "own");
+test("PayPal uses the business's own app: both client ID and secret are required", async () => {
+  assert.equal((await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "paypal", clientId: "only-id" }, owner)).status, 400);
+  const ok = await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "paypal", clientId: "pp-id", clientSecret: "pp-secret-abcd", paypalEnv: "sandbox", webhookId: "WH-1" }, owner);
+  assert.equal(ok.status, 200);
   assert.equal(ok.body.settings.payment_summary.paypalClientSecret, "••••abcd");
-  const platform = await api("PUT", `/api/admin/${bid}/payment-provider`, { provider: "paypal", mode: "platform", merchantId: "MERCH123" }, owner);
-  assert.equal(platform.status, 400);
-  assert.match(platform.body.error, /my own PayPal app/);
+  assert.equal(ok.body.settings.payment_summary.webhooks.paypal, `http://api.test/api/webhooks/paypal/${bid}`);
+});
+
+test("no per-payment fee: payments record no platform fee and plans carry no fee", async () => {
+  const plans = (await api("GET", "/api/super/plans")).body;
+  assert.ok(plans.every((p: any) => p.platformFeeBps === undefined));
+  assert.equal(one<{ n: number }>("SELECT COALESCE(SUM(platform_fee_cents),0) AS n FROM payments")!.n, 0);
 });

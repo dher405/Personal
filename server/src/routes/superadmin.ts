@@ -5,7 +5,7 @@ import { all, audit, one, run } from "../db.js";
 import { actorOf, hashPassword } from "../lib/auth.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
-import { getPacks, getPlans, savePacks, savePlans } from "../lib/plans.js";
+import { getPacks, getPlan, getPlans, savePacks, savePlans } from "../lib/plans.js";
 import { grantCredits, usageFor } from "../lib/usage.js";
 import { describeSettings, saveSettings, testSettings } from "../lib/platformSettings.js";
 import { setPlan } from "../lib/platformBilling.js";
@@ -19,7 +19,8 @@ superRouter.get("/overview", h(() => ({
   users: one("SELECT COUNT(*) AS n FROM users")!.n,
   bookings30d: one("SELECT COUNT(*) AS n FROM bookings WHERE created_at >= datetime('now', '-30 days')")!.n,
   gmv30dCents: one("SELECT COALESCE(SUM(amount_cents - refunded_cents), 0) AS n FROM payments WHERE status IN ('paid','partially_refunded') AND created_at >= datetime('now','-30 days')")!.n,
-  platformFees30dCents: one("SELECT COALESCE(SUM(platform_fee_cents), 0) AS n FROM payments WHERE status IN ('paid','partially_refunded') AND created_at >= datetime('now','-30 days')")!.n,
+  packs30dCents: one("SELECT COALESCE(SUM(price_cents), 0) AS n FROM usage_credits WHERE source IN ('purchase','auto') AND created_at >= datetime('now','-30 days')")!.n,
+  payingBusinesses: one("SELECT COUNT(*) AS n FROM businesses WHERE platform_subscription_id IS NOT NULL AND suspended = 0")!.n,
   byPlan: all("SELECT plan, COUNT(*) AS n FROM businesses GROUP BY plan"),
   sms30d: one("SELECT COUNT(*) AS n FROM sms_messages WHERE direction = 'outbound' AND status NOT IN ('failed','skipped') AND created_at >= datetime('now','-30 days')")!.n,
 })));
@@ -57,8 +58,8 @@ superRouter.get("/businesses/:id", h((req) => {
     usage: usageFor(b),
     credits: all("SELECT * FROM usage_credits WHERE business_id = ? ORDER BY created_at DESC LIMIT 50", b.id),
     revenue: {
-      feesThisMonthCents: one(`SELECT COALESCE(SUM(platform_fee_cents),0) AS n FROM payments WHERE business_id = ? AND status IN ('paid','partially_refunded') AND created_at >= ${month}`, b.id)!.n,
-      feesAllTimeCents: one("SELECT COALESCE(SUM(platform_fee_cents),0) AS n FROM payments WHERE business_id = ? AND status IN ('paid','partially_refunded')", b.id)!.n,
+      planMonthlyCents: getPlan(b.plan).monthlyPriceCents,
+      packsAllTimeCents: one("SELECT COALESCE(SUM(price_cents),0) AS n FROM usage_credits WHERE business_id = ? AND source IN ('purchase','auto')", b.id)!.n,
       packsThisMonthCents: one(`SELECT COALESCE(SUM(price_cents),0) AS n FROM usage_credits WHERE business_id = ? AND source IN ('purchase','auto') AND created_at >= ${month}`, b.id)!.n,
       customerPaymentsThisMonthCents: one(`SELECT COALESCE(SUM(amount_cents - refunded_cents),0) AS n FROM payments WHERE business_id = ? AND status IN ('paid','partially_refunded') AND created_at >= ${month}`, b.id)!.n,
     },
@@ -174,7 +175,7 @@ superRouter.post("/businesses/:id/credits", h((req) => {
 superRouter.put("/plans", h((req) => {
   const plans = parse(z.array(z.object({
     id: z.string().regex(/^[a-z0-9-]+$/), name: z.string().min(1),
-    monthlyPriceCents: z.number().int().min(0), platformFeeBps: z.number().int().min(0).max(3000),
+    monthlyPriceCents: z.number().int().min(0),
     maxStaff: z.number().int().min(1), aiChat: z.boolean(), smsPerMonth: z.number().int().min(0),
     bookingsPerMonth: z.number().int().min(0), aiMessagesPerMonth: z.number().int().min(0),
   })).min(1), req.body);

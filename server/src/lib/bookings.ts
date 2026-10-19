@@ -5,7 +5,6 @@ import { config } from "../config.js";
 import { findSlots, isSlotAvailable } from "./availability.js";
 import { randomCode, randomToken } from "./crypto.js";
 import { badRequest, conflict, forbidden, notFound } from "./errors.js";
-import { platformFeeFor } from "./plans.js";
 import { changedBy, notify } from "./notify.js";
 import { normalizePhone } from "./sms.js";
 import { addToCalendarLinks } from "./ics.js";
@@ -79,10 +78,11 @@ export function createBooking(input: NewBooking, actor: Actor) {
 
   const start = DateTime.fromISO(input.start, { zone: "utc" });
   if (!start.isValid) throw badRequest("Invalid start time");
-  // Usage-based plans: online bookings stop when the month's allowance is used (admins can always book).
-  const online = input.source !== "admin";
-  if (online && !hasCapacity(business, "bookings")) {
-    throw new HttpError(403, `${business.name} isn't taking online bookings right now.${business.phone ? ` Please call ${business.phone}.` : " Please contact them directly."}`);
+  // Usage-based plans: every booking counts toward the month's allowance; when it's used up, new ones pause.
+  if (!hasCapacity(business, "bookings")) {
+    throw new HttpError(403, input.source === "admin"
+      ? "You've used all the bookings in your plan this month. Add more or upgrade under Plan & billing to keep booking."
+      : `${business.name} isn't taking online bookings right now.${business.phone ? ` Please call ${business.phone}.` : " Please contact them directly."}`);
   }
 
   return tx(() => {
@@ -118,7 +118,7 @@ export function createBooking(input: NewBooking, actor: Actor) {
     audit(actor, business.id, "booking.created", { bookingId: id, start: start.toISO(), source: input.source });
     const booking = getBooking(id);
     if (!needsPayment) notify("booking_confirmed", booking, input.source === "admin" ? "staff" : "customer");
-    if (!needsPayment && online) recordUse(business, "bookings", id);
+    if (!needsPayment) recordUse(business, "bookings", id);
     return booking;
   });
 }
@@ -135,11 +135,10 @@ export async function startPayment(bookingId: string) {
   if (existing) return existing.checkout_url as string;
 
   const provider = providerFor(business.payment_provider);
-  const fee = platformFeeFor(business.plan, amount);
   const paymentId = newId("pay");
   run(
-    "INSERT INTO payments (id, booking_id, business_id, provider, amount_cents, platform_fee_cents, currency) VALUES (?,?,?,?,?,?,?)",
-    paymentId, booking.id, business.id, provider.name, amount, fee, business.currency,
+    "INSERT INTO payments (id, booking_id, business_id, provider, amount_cents, currency) VALUES (?,?,?,?,?,?)",
+    paymentId, booking.id, business.id, provider.name, amount, business.currency,
   );
   const payment = one("SELECT * FROM payments WHERE id = ?", paymentId)!;
   try {
@@ -148,7 +147,6 @@ export async function startPayment(bookingId: string) {
       business,
       description: `${service.name} with ${business.name}`,
       amountCents: amount,
-      platformFeeCents: fee,
       currency: business.currency,
       customerEmail: booking.customer_email,
       successUrl: `${config.webUrl}/manage/${booking.manage_token}?paid=1`,
@@ -180,8 +178,7 @@ export function markPaid(paymentId: string, providerPaymentId?: string) {
     run("UPDATE payments SET status = 'paid', provider_payment_id = COALESCE(?, provider_payment_id) WHERE id = ?", providerPaymentId ?? null, paymentId);
     if (payment.booking_id) {
       run("UPDATE bookings SET status = 'confirmed' WHERE id = ? AND status = 'pending_payment'", payment.booking_id);
-      const paidBooking = getBooking(payment.booking_id);
-      if (paidBooking.source !== "admin") recordUse(one("SELECT * FROM businesses WHERE id = ?", payment.business_id)!, "bookings", paidBooking.id);
+      recordUse(one("SELECT * FROM businesses WHERE id = ?", payment.business_id)!, "bookings", payment.booking_id);
       audit({ label: `provider:${payment.provider}` }, payment.business_id, "payment.paid", { paymentId, bookingId: payment.booking_id });
       notify("booking_confirmed", getBooking(payment.booking_id), "customer");
     }

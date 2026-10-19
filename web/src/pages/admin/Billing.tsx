@@ -6,7 +6,7 @@ import { useAction, useApi } from "../../hooks";
 import { UsageMeter } from "../../components/UsageMeter";
 import { useBusiness } from "./AdminLayout";
 
-const PACK_LABEL: Record<string, string> = { bookings: "online bookings", sms: "text messages", ai: "AI assistant messages" };
+const PACK_LABEL: Record<string, string> = { bookings: "bookings", sms: "text messages", ai: "AI assistant messages" };
 
 /** This month's meters, extra packs, and auto top-up. */
 function Usage() {
@@ -30,8 +30,9 @@ function Usage() {
       {action.error && <div className="error">{action.error}</div>}
       <div className="grid">{data.meters.map((m: any) => <UsageMeter key={m.metric} m={m} />)}</div>
       <p className="small muted">
-        Bookings you add yourself in Bookings are free and never counted. We email you at 80% and 100% of each allowance.
-        When an allowance is used up, that feature pauses until you add more, upgrade, or it resets.
+        Every booking counts, whether a customer books online or you add it yourself. We warn you by email and on every
+        admin page at 80% and 90%, so you can add more or upgrade before you run out. If an allowance is used up, that feature
+        pauses until you add more, upgrade, or it resets.
       </p>
 
       <h3>Need more?</h3>
@@ -100,9 +101,8 @@ export function Billing() {
             <div className="stat">{p.monthlyPriceCents ? `${money(p.monthlyPriceCents)}/mo` : "Free"}</div>
             <ul className="small">
               <li>Up to {p.maxStaff} staff</li>
-              <li>{(p.platformFeeBps / 100).toFixed(2)}% fee on online payments</li>
               <li>{p.aiChat ? "AI booking chat + admin assistant" : "No AI chat"}</li>
-              <li>{p.bookingsPerMonth.toLocaleString()} online bookings / month</li>
+              <li><b>{p.bookingsPerMonth.toLocaleString()} bookings / month</b></li>
               <li>{p.smsPerMonth.toLocaleString()} text messages / month</li>
               {p.aiChat && <li>{p.aiMessagesPerMonth.toLocaleString()} AI assistant messages / month</li>}
             </ul>

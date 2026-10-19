@@ -8,16 +8,18 @@ import { badRequest } from "./errors.js";
 import { getPacks, getPlan, getPlans, type Plan, type UsagePack } from "./plans.js";
 
 /**
- * Usage-based pricing. Each plan includes a monthly allowance per meter; businesses buy packs
- * (or turn on auto top-up) for more. Months are calendar months in UTC, so meters reset on the 1st.
- * Bookings a business enters itself are never counted or blocked: only online bookings are.
+ * Usage-based pricing: businesses pay by the number of bookings they take (plus texts and AI messages).
+ * Each plan includes a monthly allowance per meter; packs or auto top-up add more. Every booking counts,
+ * online or entered by the business, once confirmed (an online booking whose payment was never completed
+ * doesn't). Months are calendar months in UTC, so meters reset on the 1st.
  */
 
 export type Metric = "bookings" | "sms" | "ai";
 export const METRICS: Metric[] = ["bookings", "sms", "ai"];
-export const METRIC_LABEL: Record<Metric, string> = { bookings: "online bookings", sms: "text messages", ai: "AI assistant messages" };
+export const METRIC_LABEL: Record<Metric, string> = { bookings: "bookings", sms: "text messages", ai: "AI assistant messages" };
 const PLAN_FIELD: Record<Metric, keyof Plan> = { bookings: "bookingsPerMonth", sms: "smsPerMonth", ai: "aiMessagesPerMonth" };
-export const ALERT_THRESHOLDS = [80, 100];
+/** Warnings at 80% and 90% (before the wall), then a notice at 100%. */
+export const ALERT_THRESHOLDS = [80, 90, 100];
 
 export const currentPeriod = () => DateTime.utc().toFormat("yyyy-LL");
 
@@ -155,7 +157,7 @@ function upgradeFor(business: Row, metric: Metric) {
     .sort((a, b) => a.monthlyPriceCents - b.monthlyPriceCents)[0];
 }
 
-/** Emails every admin once per meter per month when usage crosses 80% and again at 100%. */
+/** Emails every admin once per meter per month at each threshold crossed (80%, 90%, 100%). */
 export async function checkAlerts(business: Row, metric: Metric) {
   const fresh = one("SELECT * FROM businesses WHERE id = ?", business.id)!;
   const m = meter(fresh, metric);
@@ -173,12 +175,12 @@ export async function checkAlerts(business: Row, metric: Metric) {
   const upgrade = upgradeFor(fresh, metric);
   const full = threshold >= 100;
   const resets = DateTime.utc().plus({ months: 1 }).startOf("month").toFormat("LLLL d");
-  const paused = { bookings: "Customers can't book online", sms: "Texts are paused", ai: "The AI assistant is paused" }[metric];
+  const paused = { bookings: "New bookings, online or entered by you, are paused", sms: "Texts are paused", ai: "The AI assistant is paused" }[metric];
   const lines = [
     `${fresh.name} has used ${m.used} of ${m.limit} ${m.label} this month (${m.percent}%).`,
     full
       ? fresh.auto_topup ? "Auto top-up is on, so more will be added automatically as you need them." : `${paused} until you add more or your allowance resets on ${resets}.`
-      : `At this rate you may run out before it resets on ${resets}.`,
+      : `You have ${m.remaining} left until it resets on ${resets}. ${metric === "bookings" ? "When they're used up, new bookings pause until you add more." : "When they're used up, this pauses until you add more."}`,
     "Your options:",
     pack ? `- Buy ${pack.quantity} more ${m.label} for ${money(pack.priceCents)} (good until the end of this month)` : "",
     upgrade ? `- Upgrade to ${upgrade.name} (${money(upgrade.monthlyPriceCents)}/month), which includes ${upgrade[PLAN_FIELD[metric]]} ${m.label} a month` : "",

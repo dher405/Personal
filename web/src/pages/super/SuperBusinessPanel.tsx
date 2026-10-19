@@ -5,7 +5,7 @@ import { useBusiness } from "../admin/AdminLayout";
 import { UsageMeter } from "../../components/UsageMeter";
 
 const stripeUrl = (mode: string, path: string) => `https://dashboard.stripe.com/${mode === "test" ? "test/" : ""}${path}`;
-const PACK_LABEL: Record<string, string> = { bookings: "online bookings", sms: "texts", ai: "AI messages" };
+const PACK_LABEL: Record<string, string> = { bookings: "bookings", sms: "texts", ai: "AI messages" };
 
 /** Platform-only controls for one business: plan, billing, admins, usage credits, suspension, activity. */
 export function SuperBusinessPanel() {
@@ -22,8 +22,8 @@ export function SuperBusinessPanel() {
     <div className="stack">
       {action.error && <div className="error">{action.error}</div>}
       <div className="grid">
-        <div className="card"><div className="muted small">Fees you earned this month</div><div className="stat">{money(data.revenue.feesThisMonthCents)}</div><div className="small muted">{money(data.revenue.feesAllTimeCents)} all time</div></div>
-        <div className="card"><div className="muted small">Packs bought this month</div><div className="stat">{money(data.revenue.packsThisMonthCents)}</div></div>
+        <div className="card"><div className="muted small">Their plan</div><div className="stat">{data.revenue.planMonthlyCents ? `${money(data.revenue.planMonthlyCents)}/mo` : "Free"}</div></div>
+        <div className="card"><div className="muted small">Packs bought this month</div><div className="stat">{money(data.revenue.packsThisMonthCents)}</div><div className="small muted">{money(data.revenue.packsAllTimeCents)} all time</div></div>
         <div className="card"><div className="muted small">Their customers paid them this month</div><div className="stat">{money(data.revenue.customerPaymentsThisMonthCents)}</div></div>
         <div className="card"><div className="muted small">Bookings this month</div><div className="stat">{data.stats.bookingsThisMonth}</div><div className="small muted">{data.stats.bookingsAllTime} all time · {data.stats.staff} staff</div></div>
       </div>

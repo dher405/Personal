@@ -5,31 +5,19 @@ import { badRequest } from "../lib/errors.js";
 import type { Row } from "../db.js";
 import { toMajorUnits, type PaymentProvider } from "./types.js";
 
-/**
- * PayPal Orders v2, two ways:
- * - platform app (Super admin → Settings) + the business's merchant ID: the business is the payee and the
- *   platform fee is taken (needs PayPal Commerce Platform approval);
- * - the business's own REST app (client ID + secret on their Payments tab): money goes straight to them,
- *   no platform fee is possible.
- */
+/** PayPal Orders v2 using the business's own PayPal REST app (client ID + secret from its Payments tab). */
 export interface PayPalCreds { clientId: string; clientSecret: string; env: string }
 
-const platformCreds = (): PayPalCreds => ({ clientId: config.paypal.clientId, clientSecret: config.paypal.clientSecret, env: config.paypal.env });
-
-/** The business's own PayPal app if they entered one, else the platform's. */
-export function credsFor(business?: Row): { creds: PayPalCreds; own: boolean; merchantId?: string } {
-  const cfg = business ? decryptJson<Record<string, string>>(business.payment_config) : {};
-  if (cfg.paypalClientId && cfg.paypalClientSecret) {
-    return { creds: { clientId: cfg.paypalClientId, clientSecret: cfg.paypalClientSecret, env: cfg.paypalEnv || "live" }, own: true };
-  }
-  return { creds: platformCreds(), own: false, merchantId: cfg.merchantId };
+export function credsFor(business: Row): PayPalCreds {
+  const cfg = decryptJson<Record<string, string>>(business.payment_config);
+  return { clientId: cfg.paypalClientId ?? "", clientSecret: cfg.paypalClientSecret ?? "", env: cfg.paypalEnv || "live" };
 }
 
 const baseUrl = (env: string) => (env === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com");
 const tokens = new Map<string, { value: string; expiresAt: number }>();
 
-export async function paypalAccessToken(creds: PayPalCreds = platformCreds()) {
-  if (!creds.clientId || !creds.clientSecret) throw badRequest("PayPal isn't set up yet (client ID and secret)");
+export async function paypalAccessToken(creds: PayPalCreds) {
+  if (!creds.clientId || !creds.clientSecret) throw badRequest("This business hasn't added its PayPal client ID and secret yet");
   const key = `${creds.env}:${creds.clientId}:${creds.clientSecret.slice(-6)}`;
   const cached = tokens.get(key);
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.value;
@@ -47,7 +35,7 @@ export async function paypalAccessToken(creds: PayPalCreds = platformCreds()) {
   return json.access_token as string;
 }
 
-export async function paypalFetch(path: string, init: { method?: string; body?: unknown } = {}, creds: PayPalCreds = platformCreds()) {
+export async function paypalFetch(path: string, init: { method?: string; body?: unknown } = {}, creds: PayPalCreds) {
   const res = await fetch(`${baseUrl(creds.env)}${path}`, {
     method: init.method ?? "GET",
     headers: {
@@ -66,8 +54,7 @@ export const paypalProvider: PaymentProvider = {
   name: "paypal",
 
   async createCheckout(req) {
-    const { creds, own, merchantId } = credsFor(req.business);
-    if (!own && !merchantId) throw badRequest("This business hasn't finished setting up PayPal");
+    const creds = credsFor(req.business);
     const amount = { currency_code: req.currency, value: toMajorUnits(req.amountCents) };
     const order = await paypalFetch("/v2/checkout/orders", {
       method: "POST",
@@ -77,10 +64,6 @@ export const paypalProvider: PaymentProvider = {
           reference_id: req.payment.id,
           description: req.description.slice(0, 127),
           amount,
-          ...(own ? {} : { payee: { merchant_id: merchantId } }),
-          ...(!own && req.platformFeeCents > 0
-            ? { payment_instruction: { platform_fees: [{ amount: { currency_code: req.currency, value: toMajorUnits(req.platformFeeCents) } }] } }
-            : {}),
         }],
         payment_source: {
           paypal: {
@@ -98,7 +81,7 @@ export const paypalProvider: PaymentProvider = {
   },
 
   async confirm(payment, business) {
-    const { creds } = credsFor(business);
+    const creds = credsFor(business);
     let order = await paypalFetch(`/v2/checkout/orders/${payment.provider_ref}`, {}, creds);
     if (order.status === "APPROVED") {
       order = await paypalFetch(`/v2/checkout/orders/${payment.provider_ref}/capture`, { method: "POST" }, creds);
@@ -112,6 +95,6 @@ export const paypalProvider: PaymentProvider = {
     await paypalFetch(`/v2/payments/captures/${payment.provider_payment_id}/refund`, {
       method: "POST",
       body: { amount: { currency_code: payment.currency, value: toMajorUnits(amountCents) } },
-    }, credsFor(business).creds);
+    }, credsFor(business));
   },
 };

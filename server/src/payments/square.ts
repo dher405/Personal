@@ -1,15 +1,13 @@
 import type { Row } from "../db.js";
 import { randomUUID } from "node:crypto";
-import { config } from "../config.js";
 import { decryptJson } from "../lib/crypto.js";
 import { badRequest } from "../lib/errors.js";
 import type { PaymentProvider } from "./types.js";
 
-/** A business's own environment choice wins; otherwise the platform's (Super admin → Settings). */
 const baseUrl = (cfg: SquareConfig) =>
-  (cfg.squareEnv || config.square.env) === "production" ? "https://connect.squareup.com" : "https://connect.squareupsandbox.com";
+  (cfg.squareEnv || "production") === "production" ? "https://connect.squareup.com" : "https://connect.squareupsandbox.com";
 
-interface SquareConfig { accessToken?: string; locationId?: string; oauth?: boolean; squareEnv?: string; squareWebhookKey?: string }
+interface SquareConfig { accessToken?: string; locationId?: string; squareEnv?: string; squareWebhookKey?: string }
 
 export async function squareFetch(business: Row, path: string, init: { method?: string; body?: unknown } = {}) {
   const cfg = decryptJson<SquareConfig>(business.payment_config);
@@ -29,8 +27,7 @@ export async function squareFetch(business: Row, path: string, init: { method?: 
 }
 
 /**
- * Square hosted payment links. Businesses paste an access token + location id
- * (or connect via Square OAuth). App fees only work for OAuth-connected sellers.
+ * Square hosted payment links, using the access token and location ID from the business's Payments tab.
  */
 export const squareProvider: PaymentProvider = {
   name: "square",
@@ -48,9 +45,6 @@ export const squareProvider: PaymentProvider = {
         },
         checkout_options: {
           redirect_url: req.successUrl,
-          ...(cfg.oauth && req.platformFeeCents > 0
-            ? { app_fee_money: { amount: req.platformFeeCents, currency: req.currency } }
-            : {}),
         },
         pre_populated_data: { buyer_email: req.customerEmail },
         payment_note: `slotwise:${req.payment.id}`,

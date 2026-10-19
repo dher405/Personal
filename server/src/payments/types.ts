@@ -5,7 +5,6 @@ export interface CheckoutRequest {
   business: Row;
   description: string;
   amountCents: number;
-  platformFeeCents: number;
   currency: string;
   customerEmail: string;
   successUrl: string;

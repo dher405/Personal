@@ -17,33 +17,12 @@ export interface SettingGroup { id: string; title: string; description: string; 
 export const SETTING_GROUPS: SettingGroup[] = [
   {
     id: "stripe", title: "Stripe", testable: true,
-    description: "Bills businesses for plans and packs, and takes your fee on their customers' card payments (Stripe Connect). Keys: dashboard.stripe.com → Developers → API keys. Use sk_test_… to try it out, sk_live_… for real money.",
+    description: "How you bill businesses: plan subscriptions, extra booking packs and auto top-ups. (Businesses take their customers' payments with their own accounts on their Payments tab.) Keys: dashboard.stripe.com → Developers → API keys. Use sk_test_… to try it out, sk_live_… for real money.",
     fields: [
       { name: "STRIPE_SECRET_KEY", label: "Secret key", secret: true, placeholder: "sk_live_… or sk_test_…" },
-      { name: "STRIPE_WEBHOOK_SECRET", label: "Webhook signing secret: Your account", secret: true, placeholder: "whsec_…", help: "From the webhook listening to your account: checkout.session.completed, customer.subscription.updated, customer.subscription.deleted" },
-      { name: "STRIPE_CONNECT_WEBHOOK_SECRET", label: "Webhook signing secret: Connected accounts", secret: true, placeholder: "whsec_…", help: "From the webhook listening to connected accounts: checkout.session.completed" },
+      { name: "STRIPE_WEBHOOK_SECRET", label: "Webhook signing secret", secret: true, placeholder: "whsec_…", help: "Add the webhook URL above in Stripe → Developers → Webhooks with events checkout.session.completed, customer.subscription.updated, customer.subscription.deleted, then copy its signing secret" },
     ],
-    urls: (api) => [{ label: "Webhook URL (use it for both webhooks)", url: `${api}/api/webhooks/stripe` }],
-  },
-  {
-    id: "paypal", title: "PayPal (platform app)", testable: true,
-    description: "Optional. Lets businesses accept PayPal using just their merchant ID, with your fee taken (needs PayPal Commerce Platform approval). From developer.paypal.com → Apps & Credentials.",
-    fields: [
-      { name: "PAYPAL_ENV", label: "Environment", options: ["sandbox", "live"] },
-      { name: "PAYPAL_CLIENT_ID", label: "Client ID" },
-      { name: "PAYPAL_CLIENT_SECRET", label: "Client secret", secret: true },
-      { name: "PAYPAL_WEBHOOK_ID", label: "Webhook ID", help: "Shown after you add the webhook URL above in your PayPal app (events CHECKOUT.ORDER.APPROVED, PAYMENT.CAPTURE.COMPLETED)" },
-    ],
-    urls: (api) => [{ label: "Webhook URL", url: `${api}/api/webhooks/paypal` }],
-  },
-  {
-    id: "square", title: "Square (platform app)",
-    description: "Optional. Only needed if you run a Square app that businesses connect to. Businesses can also paste their own Square keys on their Payments tab without this.",
-    fields: [
-      { name: "SQUARE_ENV", label: "Environment", options: ["sandbox", "production"] },
-      { name: "SQUARE_WEBHOOK_SIGNATURE_KEY", label: "Webhook signature key", secret: true, help: "Square Developer → your app → Webhooks; subscribe to payment.updated" },
-    ],
-    urls: (api) => [{ label: "Webhook URL", url: `${api}/api/webhooks/square` }],
+    urls: (api) => [{ label: "Webhook URL", url: `${api}/api/webhooks/stripe` }],
   },
   {
     id: "email", title: "Email", testable: true,
@@ -173,11 +152,6 @@ export async function testSettings(group: string): Promise<{ ok: boolean; messag
       const account = await new Stripe(config.stripe.secretKey).accounts.retrieveCurrent();
       const mode = config.stripe.secretKey.startsWith("sk_live") ? "live" : "test";
       return { ok: true, message: `Connected to ${account.settings?.dashboard?.display_name ?? account.email ?? account.id} (${mode} mode)${account.charges_enabled ? "" : ". Note: this account can't take payments yet; finish activating it in Stripe"}` };
-    }
-    if (group === "paypal") {
-      const { paypalAccessToken } = await import("../payments/paypal.js");
-      await paypalAccessToken(); // getting a token proves the client ID and secret are right
-      return { ok: true, message: `PayPal credentials accepted (${config.paypal.env})` };
     }
     if (group === "twilio") {
       const { accountSid, authToken } = config.twilio;
