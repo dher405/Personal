@@ -63,7 +63,8 @@ export function hasCapacity(business: Row, metric: Metric): boolean {
   const m = meter(business, metric);
   if (m.used < m.limit) return true;
   const pack = smallestPack(metric);
-  const canBill = !config.stripe.secretKey || !!business.platform_customer_id;
+  // Auto top-ups are billed on the next plan invoice, so there must be a paid subscription to put them on.
+  const canBill = !config.stripe.secretKey || !!business.platform_subscription_id;
   if (!business.auto_topup || !pack || !canBill) return false;
   const id = grantCredits(business.id, pack, 1, "auto", { label: "auto-top-up" });
   chargeAutoTopUp(id).catch((err) => console.error("auto top-up charge failed", err));

@@ -404,8 +404,8 @@ adminRouter.get("/usage", h((req) => {
     meters: usageFor(b),
     packs: getPacks(),
     autoTopUp: !!b.auto_topup,
-    // Auto top-up bills the card on the platform subscription; free plans have none until they buy something.
-    canAutoTopUp: !config.stripe.secretKey || !!b.platform_customer_id,
+    // Auto top-ups are added to the next plan invoice, so they need a paid plan subscription to land on.
+    canAutoTopUp: !config.stripe.secretKey || !!b.platform_subscription_id,
     purchases: all("SELECT metric, quantity, source, price_cents, charge_status, created_at FROM usage_credits WHERE business_id = ? ORDER BY created_at DESC LIMIT 50", b.id),
   };
 }));
@@ -418,7 +418,7 @@ adminRouter.post("/usage/packs", h(async (req) => {
 adminRouter.put("/usage/auto-topup", h((req) => {
   const { enabled } = parse(z.object({ enabled: z.boolean() }), req.body);
   const b = business(req);
-  if (enabled && config.stripe.secretKey && !b.platform_customer_id) throw badRequest("Add a card first: subscribe to a plan or buy a pack once, then turn on auto top-up.");
+  if (enabled && config.stripe.secretKey && !b.platform_subscription_id) throw badRequest("Auto top-up is added to your monthly plan invoice, so it needs a paid plan. Upgrade first, or buy packs as you need them.");
   run("UPDATE businesses SET auto_topup = ? WHERE id = ?", Number(enabled), b.id);
   audit(actor(req), b.id, "usage.auto_topup", { enabled });
   return { ok: true };

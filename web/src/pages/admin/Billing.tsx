@@ -61,7 +61,7 @@ function Usage() {
           onChange={(e) => action.run(async () => { await api(`/admin/${biz.id}/usage/auto-topup`, { method: "PUT", body: { enabled: e.target.checked } }); reload(); reloadBiz(); })} />
         Auto top-up: when something runs out, add the smallest pack automatically and put it on my next invoice
       </label>
-      {!data.canAutoTopUp && <span className="small muted">Available once you have a card on file (subscribe to a paid plan or buy a pack once).</span>}
+      {!data.canAutoTopUp && <span className="small muted">Available on paid plans, because top-ups are added to your monthly plan invoice. On Starter, buy packs as you need them.</span>}
       {data.purchases.length > 0 && (
         <details>
           <summary className="small">Extra uses added this month and before</summary>
