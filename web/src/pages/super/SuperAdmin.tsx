@@ -1,9 +1,24 @@
 import { useState } from "react";
-import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Route, Routes, useParams } from "react-router-dom";
+import { AdminLayout } from "../admin/AdminLayout";
+import { SuperBusinessPanel } from "./SuperBusinessPanel";
 import { DateTime } from "luxon";
 import { api, money } from "../../api";
 import { useAction, useApi } from "../../hooks";
 import { UsageMeter } from "../../components/UsageMeter";
+
+/** One business, exactly as its owner sees it, plus the platform-only "Account & billing" tab. */
+function BusinessWorkspace() {
+  const { bid } = useParams();
+  return (
+    <AdminLayout
+      embedded
+      basePath={`/super/businesses/${bid}`}
+      header={<p className="small" style={{ marginTop: 0 }}><Link to="/super/businesses">← All businesses</Link> · You're seeing what this business's admins see. Changes you make here are real and are recorded in the audit log under your name.</p>}
+      extraTabs={[{ path: "account", label: "Account & billing ★", element: <SuperBusinessPanel /> }]}
+    />
+  );
+}
 
 export function SuperAdmin() {
   return (
@@ -11,12 +26,13 @@ export function SuperAdmin() {
       <h1>Platform admin</h1>
       <nav className="tabs">
         {[["", "Overview"], ["businesses", "Businesses"], ["users", "Users"], ["plans", "Plans & fees"], ["payments", "Payments"], ["audit", "Audit log"]].map(([p, l]) => (
-          <NavLink key={p} end to={p ? `/super/${p}` : "/super"}>{l}</NavLink>
+          <NavLink key={p} end={!p} to={p ? `/super/${p}` : "/super"}>{l}</NavLink>
         ))}
       </nav>
       <Routes>
         <Route index element={<Overview />} />
         <Route path="businesses" element={<Businesses />} />
+        <Route path="businesses/:bid/*" element={<BusinessWorkspace />} />
         <Route path="users" element={<Users />} />
         <Route path="plans" element={<Plans />} />
         <Route path="payments" element={<AllPayments />} />
@@ -68,7 +84,7 @@ function Businesses() {
           <tbody>
             {data?.map((b) => (
               <tr key={b.id}>
-                <td><strong>{b.name}</strong><div className="small muted">/b/{b.slug}</div></td>
+                <td><Link to={`/super/businesses/${b.id}`}><strong>{b.name}</strong></Link><div className="small muted">/b/{b.slug}</div></td>
                 <td className="small">{b.admins}</td>
                 <td>
                   <select value={b.plan} onChange={(e) => patch(b.id, { plan: e.target.value })}>
@@ -83,7 +99,7 @@ function Businesses() {
                 <td>{b.suspended ? <span className="badge bad">suspended</span> : <span className="badge ok">active</span>}</td>
                 <td>
                   <div className="row">
-                    <Link className="btn" to={`/admin/${b.id}`}>Manage</Link>
+                    <Link className="btn primary" to={`/super/businesses/${b.id}`}>Open</Link>
                     <button onClick={() => addMember(b.id)}>Add admin</button>
                     <button onClick={() => grant(b)}>Give credits</button>
                     <button className={b.suspended ? "" : "danger"} onClick={() => patch(b.id, { suspended: !b.suspended })}>{b.suspended ? "Unsuspend" : "Suspend"}</button>

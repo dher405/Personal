@@ -5,7 +5,7 @@ import { useAuth } from "../auth";
 import { useAction, useApi } from "../hooks";
 import { SocialButtons } from "../components/SocialButtons";
 
-export const landing = (role: string) => (role === "superadmin" ? "/super" : role === "admin" ? "/admin" : "/me");
+export const landing = (role: string) => (role === "superadmin" ? "/super/businesses" : role === "admin" ? "/admin" : "/me");
 
 export function Login() {
   const { login } = useAuth();

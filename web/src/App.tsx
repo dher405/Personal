@@ -19,7 +19,7 @@ function TopBar() {
         <div className="spacer" />
         {session ? (
           <>
-            {role !== "customer" && <Link to="/admin">Admin</Link>}
+            {role === "admin" && <Link to="/admin">Admin</Link>}
             {role === "superadmin" && <Link to="/super">Super admin</Link>}
             <Link to="/me">My bookings</Link>
             <Link to="/account">Account</Link>
@@ -44,6 +44,17 @@ function RequireRole({ roles, children }: { roles: string[]; children: ReactElem
   return children;
 }
 
+/**
+ * The super admin works on businesses inside Super admin → Businesses. Links that point at /admin/...
+ * (emails, Stripe and calendar redirects) are forwarded there, keeping the tab and query string.
+ */
+function SuperRedirect({ children }: { children: ReactElement }) {
+  const { session } = useAuth();
+  const { pathname, search } = useLocation();
+  if (session?.user.role !== "superadmin") return children;
+  return <Navigate to={pathname.replace(/^\/admin/, "/super/businesses") + search} replace />;
+}
+
 export function App() {
   return (
     <>
@@ -61,8 +72,8 @@ export function App() {
         <Route path="/embed/:slug" element={<BookingPage embed />} />
         <Route path="/manage/:token" element={<ManageBooking />} />
         <Route path="/me" element={<RequireRole roles={["customer", "admin", "superadmin"]}><MyBookings /></RequireRole>} />
-        <Route path="/admin" element={<RequireRole roles={["admin", "superadmin"]}><AdminHome /></RequireRole>} />
-        <Route path="/admin/:bid/*" element={<RequireRole roles={["admin", "superadmin"]}><AdminLayout /></RequireRole>} />
+        <Route path="/admin" element={<RequireRole roles={["admin", "superadmin"]}><SuperRedirect><AdminHome /></SuperRedirect></RequireRole>} />
+        <Route path="/admin/:bid/*" element={<RequireRole roles={["admin", "superadmin"]}><SuperRedirect><AdminLayout /></SuperRedirect></RequireRole>} />
         <Route path="/super/*" element={<RequireRole roles={["superadmin"]}><SuperAdmin /></RequireRole>} />
         <Route path="*" element={<div className="container">Page not found.</div>} />
       </Routes>

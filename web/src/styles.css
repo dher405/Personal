@@ -66,7 +66,7 @@ th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: 
 .badge.bad { background: var(--bad-soft); color: var(--bad); }
 .error { background: var(--bad-soft); color: var(--bad); padding: 8px 12px; border-radius: 8px; }
 .notice { background: var(--ok-soft); color: var(--ok); padding: 8px 12px; border-radius: 8px; }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; overflow-x: auto; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
 .tabs a { padding: 10px 14px; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
 .tabs a.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 .tabs a:hover { text-decoration: none; color: var(--text); }
@@ -87,6 +87,7 @@ th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: 
 .chat-panel { position: fixed; right: 16px; bottom: 72px; width: min(400px, calc(100vw - 32px)); z-index: 40; margin: 0; }
 @media (max-width: 640px) {
   .container { padding: 16px; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; }
   .days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   th, td { padding: 6px; }
 }

@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { Router } from "express";
 import { z } from "zod";
 import { all, audit, one, run } from "../db.js";
@@ -33,6 +34,50 @@ superRouter.get("/businesses", h((req) => {
        FROM businesses b WHERE b.name LIKE ? OR b.slug LIKE ? ORDER BY b.created_at DESC LIMIT 500`, q, q,
   );
   return rows.map((r) => ({ ...r, usage: usageFor(r) }));
+}));
+
+/** Everything the platform owner needs about one business, beside the business's own admin tabs. */
+superRouter.get("/businesses/:id", h((req) => {
+  const b = one("SELECT * FROM businesses WHERE id = ?", req.params.id);
+  if (!b) throw notFound();
+  const month = "datetime('now','start of month')";
+  return {
+    business: {
+      id: b.id, name: b.name, slug: b.slug, plan: b.plan, plan_status: b.plan_status, suspended: !!b.suspended,
+      created_at: b.created_at, payment_provider: b.payment_provider, auto_topup: !!b.auto_topup,
+      platform_customer_id: b.platform_customer_id, platform_subscription_id: b.platform_subscription_id,
+    },
+    stripeMode: config.stripe.secretKey ? (config.stripe.secretKey.startsWith("sk_live") ? "live" : "test") : "off",
+    admins: all(
+      `SELECT u.id, u.email, u.name, m.role, u.created_at,
+              (SELECT GROUP_CONCAT(provider) FROM user_identities i WHERE i.user_id = u.id) AS providers
+         FROM business_members m JOIN users u ON u.id = m.user_id WHERE m.business_id = ? ORDER BY m.role, u.email`, b.id,
+    ),
+    usage: usageFor(b),
+    credits: all("SELECT * FROM usage_credits WHERE business_id = ? ORDER BY created_at DESC LIMIT 50", b.id),
+    revenue: {
+      feesThisMonthCents: one(`SELECT COALESCE(SUM(platform_fee_cents),0) AS n FROM payments WHERE business_id = ? AND status IN ('paid','partially_refunded') AND created_at >= ${month}`, b.id)!.n,
+      feesAllTimeCents: one("SELECT COALESCE(SUM(platform_fee_cents),0) AS n FROM payments WHERE business_id = ? AND status IN ('paid','partially_refunded')", b.id)!.n,
+      packsThisMonthCents: one(`SELECT COALESCE(SUM(price_cents),0) AS n FROM usage_credits WHERE business_id = ? AND source IN ('purchase','auto') AND created_at >= ${month}`, b.id)!.n,
+      customerPaymentsThisMonthCents: one(`SELECT COALESCE(SUM(amount_cents - refunded_cents),0) AS n FROM payments WHERE business_id = ? AND status IN ('paid','partially_refunded') AND created_at >= ${month}`, b.id)!.n,
+    },
+    stats: {
+      bookingsThisMonth: one(`SELECT COUNT(*) AS n FROM bookings WHERE business_id = ? AND created_at >= ${month}`, b.id)!.n,
+      bookingsAllTime: one("SELECT COUNT(*) AS n FROM bookings WHERE business_id = ?", b.id)!.n,
+      staff: one("SELECT COUNT(*) AS n FROM staff WHERE business_id = ? AND active = 1", b.id)!.n,
+    },
+    audit: all("SELECT * FROM audit_log WHERE business_id = ? ORDER BY created_at DESC LIMIT 100", b.id),
+  };
+}));
+
+superRouter.delete("/businesses/:id/members/:userId", h((req) => {
+  const member = one("SELECT * FROM business_members WHERE business_id = ? AND user_id = ?", req.params.id, req.params.userId);
+  if (!member) throw notFound();
+  const owners = one<{ n: number }>("SELECT COUNT(*) AS n FROM business_members WHERE business_id = ? AND role = 'owner'", req.params.id)!.n;
+  if (member.role === "owner" && owners <= 1) throw badRequest("Add another owner before removing the last one");
+  run("DELETE FROM business_members WHERE business_id = ? AND user_id = ?", req.params.id, req.params.userId);
+  audit(actorOf(req.user), req.params.id as string, "member.removed", { userId: req.params.userId });
+  return { ok: true };
 }));
 
 superRouter.patch("/businesses/:id", h((req) => {

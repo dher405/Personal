@@ -116,6 +116,18 @@ Options: `data-service` (open on one service), `data-color`, `data-theme="dark"`
 - Only `/embed/*` may be framed by other sites. Every other page sends `frame-ancestors 'self'`, so admin screens can't be clickjacked.
 - Customers get confirmation, reschedule and cancellation **emails** (via Resend/Postmark) in addition to the optional texts.
 
+## Super admin workspace
+
+The super admin has no separate "Admin" section. **Super admin → Businesses → (a business)** opens the same tabs the business's admins see (Dashboard, Bookings, Services, Staff, Payments, texts, calendars, AI, billing, settings, website). The extra **Account & billing ★** tab shows:
+- fees earned, packs bought, and their customers' payments this month
+- the plan (set it directly for comped accounts) and links to the business's Stripe customer and subscription
+- usage, and free credits you've given
+- the business's admins (add, remove, send a reset link)
+- suspend or reactivate
+- the business's recent activity
+
+Links that point at `/admin/...` (emails, Stripe and calendar redirects) forward to the same page in the workspace.
+
 ## Usage-based pricing
 
 Each plan includes a monthly allowance of **online bookings**, **text messages** and **AI assistant messages**, plus a staff limit and a fee on online payments. The super admin edits all of this in **Plans & fees**, along with the top-up **packs** businesses can buy.

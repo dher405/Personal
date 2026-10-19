@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { Navigate, NavLink, Route, Routes, useParams } from "react-router-dom";
 import { useAuth } from "../../auth";
 import { useApi } from "../../hooks";
@@ -39,15 +39,22 @@ const tabs = [
   ["payments", "Payments"], ["sms", "Text messages"], ["calendars", "Calendar sync"], ["ai", "AI assistant"], ["billing", "Plan & billing"], ["settings", "Settings"], ["website", "Add to website"],
 ];
 
-export function AdminLayout() {
+export interface ExtraTab { path: string; label: string; element: ReactNode }
+
+/**
+ * A business's admin screens. Business admins see them at /admin/:bid; the super admin sees the very
+ * same screens inside Super admin → Businesses (basePath), plus platform-only tabs (extraTabs).
+ */
+export function AdminLayout({ basePath, extraTabs = [], embedded = false, header }: { basePath?: string; extraTabs?: ExtraTab[]; embedded?: boolean; header?: ReactNode }) {
   const { bid } = useParams();
   const { data: biz, reload, error } = useApi<any>(`/admin/${bid}`);
-  if (error) return <div className="container"><div className="error">{error}</div></div>;
-  if (!biz) return <div className="container muted">Loading…</div>;
-  const base = `/admin/${bid}`;
+  if (error) return <div className={embedded ? "" : "container"}><div className="error">{error}</div></div>;
+  if (!biz) return <div className={embedded ? "muted" : "container muted"}>Loading…</div>;
+  const base = basePath ?? `/admin/${bid}`;
   return (
     <BusinessContext.Provider value={{ biz, reloadBiz: reload, base }}>
-      <div className="container">
+      <div className={embedded ? "" : "container"}>
+        {header}
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h1 style={{ margin: 0 }}>{biz.name}</h1>
           <a href={`/b/${biz.slug}`} target="_blank" rel="noreferrer">View booking page ↗</a>
@@ -55,6 +62,7 @@ export function AdminLayout() {
         {biz.suspended ? <div className="error" style={{ marginTop: 12 }}>This business is suspended by the platform and hidden from customers.</div> : null}
         <nav className="tabs" style={{ marginTop: 16 }}>
           {tabs.map(([path, label]) => <NavLink key={path} end to={path ? `${base}/${path}` : base}>{label}</NavLink>)}
+          {extraTabs.map((t) => <NavLink key={t.path} to={`${base}/${t.path}`}>{t.label}</NavLink>)}
         </nav>
         <Routes>
           <Route index element={<Dashboard />} />
@@ -69,6 +77,7 @@ export function AdminLayout() {
           <Route path="settings" element={<Settings />} />
           <Route path="website" element={<Embed />} />
           <Route path="calendars" element={<Calendars />} />
+          {extraTabs.map((t) => <Route key={t.path} path={t.path} element={t.element} />)}
         </Routes>
       </div>
     </BusinessContext.Provider>
