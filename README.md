@@ -116,6 +116,16 @@ Options: `data-service` (open on one service), `data-color`, `data-theme="dark"`
 - Only `/embed/*` may be framed by other sites. Every other page sends `frame-ancestors 'self'`, so admin screens can't be clickjacked.
 - Customers get confirmation, reschedule and cancellation **emails** (via Resend/Postmark) in addition to the optional texts.
 
+## Usage-based pricing
+
+Each plan includes a monthly allowance of **online bookings**, **text messages** and **AI assistant messages**, plus a staff limit and a fee on online payments. The super admin edits all of this in **Plans & fees**, along with the top-up **packs** businesses can buy.
+
+- **What counts:** online bookings (web, app, AI chat) count once they're confirmed, which for paid bookings means once payment completes. Bookings an admin enters never count. Texts count when sent (customer texts and the business's own alerts). AI counts one per message the assistant answers.
+- **When it runs out:** that feature pauses until the business adds more. Online booking shows customers a "please call" notice, texts are skipped (and logged), and AI chat is hidden. Meters reset on the 1st of each month (UTC).
+- **Tracker:** usage bars on the business's Dashboard and Plan & billing page, and per business in Super admin → Businesses.
+- **Alerts:** every admin of the business is emailed once per meter per month at 80% and at 100%. The email offers the right pack, the next plan that includes more, and auto top-up.
+- **Packs:** paid through Stripe Checkout (`checkout.session.completed` with `metadata.kind = usage_pack`), and they apply to the current month. **Auto top-up** adds the smallest pack the moment a meter runs out and puts it on the business's next subscription invoice (a Stripe invoice item). It needs a card on file. The super admin can also **Give credits** for free.
+
 ## Calendars
 
 **Customers.** After booking, and on their manage page, customers get **Add to calendar** buttons: Google Calendar, Outlook.com, Outlook work/school, and an `.ics` file for Apple Calendar and everything else. Every booking email carries a calendar invitation. It keeps the same UID and a rising SEQUENCE, so Gmail, Outlook and Apple Mail move the existing entry when the booking is rescheduled and remove it when it's cancelled.

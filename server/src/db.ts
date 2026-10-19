@@ -265,6 +265,39 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 );
 `);
 
+// --- Usage-based pricing: metered uses, purchased credits, alerts sent ---
+addColumn("businesses", "auto_topup", "INTEGER NOT NULL DEFAULT 0");
+db.exec(`
+CREATE TABLE IF NOT EXISTS usage_events (
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  metric TEXT NOT NULL CHECK (metric IN ('bookings','ai')),
+  ref_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (metric, ref_id)
+);
+CREATE INDEX IF NOT EXISTS idx_usage_events ON usage_events(business_id, metric, created_at);
+CREATE TABLE IF NOT EXISTS usage_credits (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  metric TEXT NOT NULL CHECK (metric IN ('bookings','sms','ai')),
+  quantity INTEGER NOT NULL,
+  period TEXT NOT NULL,            -- YYYY-MM the credits apply to
+  source TEXT NOT NULL CHECK (source IN ('purchase','auto','grant')),
+  price_cents INTEGER NOT NULL DEFAULT 0,
+  charge_status TEXT NOT NULL DEFAULT 'none' CHECK (charge_status IN ('none','pending','charged','failed')),
+  external_ref TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS usage_alerts (
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  metric TEXT NOT NULL,
+  period TEXT NOT NULL,
+  threshold INTEGER NOT NULL,
+  sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (business_id, metric, period, threshold)
+);
+`);
+
 export type Row = Record<string, any>;
 
 export function one<T = Row>(sql: string, ...params: any[]): T | undefined {

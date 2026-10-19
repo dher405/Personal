@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { money } from "../../api";
 import { useApi } from "../../hooks";
 import { useBusiness } from "./AdminLayout";
+import { UsageMeter } from "../../components/UsageMeter";
 
 export function Dashboard() {
   const { biz, base } = useBusiness();
@@ -20,8 +21,14 @@ export function Dashboard() {
     { done: !!biz.ai_enabled, label: "Turn on the AI booking assistant (optional)", to: "ai" },
   ];
 
+  const low = (biz.usage ?? []).filter((m: any) => m.limit > 0 && m.percent >= 80);
   return (
     <div className="stack">
+      {low.length > 0 && (
+        <div className={low.some((m: any) => m.percent >= 100) ? "error" : "notice"} style={low.some((m: any) => m.percent >= 100) ? undefined : { background: "var(--warn-soft)", color: "var(--warn)" }}>
+          {low.map((m: any) => `${m.percent >= 100 ? "Used up" : `${m.percent}% used`}: ${m.label}`).join(" · ")}. <Link to={`${base}/billing`}>Add more or upgrade</Link>
+        </div>
+      )}
       <div className="grid">
         <div className="card"><div className="muted small">Upcoming bookings</div><div className="stat">{stats?.upcoming ?? "–"}</div></div>
         <div className="card"><div className="muted small">Bookings this month</div><div className="stat">{stats?.bookingsThisMonth ?? "–"}</div></div>
@@ -37,6 +44,10 @@ export function Dashboard() {
           <p className="small muted">Share your booking link: <code>{window.location.origin}/b/{biz.slug}</code> or <Link to={`${base}/website`}>add booking to your website</Link>.</p>
         </div>
       )}
+      <div className="card stack">
+        <div className="row" style={{ justifyContent: "space-between" }}><h2 style={{ margin: 0 }}>Usage this month</h2><Link to={`${base}/billing`} className="small">Details</Link></div>
+        <div className="grid">{(biz.usage ?? []).map((m: any) => <UsageMeter key={m.metric} m={m} compact />)}</div>
+      </div>
       <div className="card">
         <h2>Today</h2>
         {todays?.length === 0 && <p className="muted">Nothing booked today.</p>}

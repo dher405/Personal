@@ -9,6 +9,8 @@ import { platformFeeFor } from "./plans.js";
 import { changedBy, notify } from "./notify.js";
 import { normalizePhone } from "./sms.js";
 import { addToCalendarLinks } from "./ics.js";
+import { hasCapacity, recordUse } from "./usage.js";
+import { HttpError } from "./errors.js";
 
 type Actor = { id?: string | null; label: string };
 
@@ -77,6 +79,11 @@ export function createBooking(input: NewBooking, actor: Actor) {
 
   const start = DateTime.fromISO(input.start, { zone: "utc" });
   if (!start.isValid) throw badRequest("Invalid start time");
+  // Usage-based plans: online bookings stop when the month's allowance is used (admins can always book).
+  const online = input.source !== "admin";
+  if (online && !hasCapacity(business, "bookings")) {
+    throw new HttpError(403, `${business.name} isn't taking online bookings right now.${business.phone ? ` Please call ${business.phone}.` : " Please contact them directly."}`);
+  }
 
   return tx(() => {
     let staffId = input.staffId;
@@ -111,6 +118,7 @@ export function createBooking(input: NewBooking, actor: Actor) {
     audit(actor, business.id, "booking.created", { bookingId: id, start: start.toISO(), source: input.source });
     const booking = getBooking(id);
     if (!needsPayment) notify("booking_confirmed", booking, input.source === "admin" ? "staff" : "customer");
+    if (!needsPayment && online) recordUse(business, "bookings", id);
     return booking;
   });
 }
@@ -172,6 +180,8 @@ export function markPaid(paymentId: string, providerPaymentId?: string) {
     run("UPDATE payments SET status = 'paid', provider_payment_id = COALESCE(?, provider_payment_id) WHERE id = ?", providerPaymentId ?? null, paymentId);
     if (payment.booking_id) {
       run("UPDATE bookings SET status = 'confirmed' WHERE id = ? AND status = 'pending_payment'", payment.booking_id);
+      const paidBooking = getBooking(payment.booking_id);
+      if (paidBooking.source !== "admin") recordUse(one("SELECT * FROM businesses WHERE id = ?", payment.business_id)!, "bookings", paidBooking.id);
       audit({ label: `provider:${payment.provider}` }, payment.business_id, "payment.paid", { paymentId, bookingId: payment.booking_id });
       notify("booking_confirmed", getBooking(payment.booking_id), "customer");
     }

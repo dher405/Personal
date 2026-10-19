@@ -6,6 +6,7 @@ import { one } from "../db.js";
 import { confirmPayment, markPaid } from "../lib/bookings.js";
 import { h } from "../lib/http.js";
 import { handleSubscriptionEvent } from "../lib/platformBilling.js";
+import { applyPaidPackCheckout } from "../lib/usage.js";
 import { stripe } from "../payments/stripe.js";
 import { paypalFetch } from "../payments/paypal.js";
 
@@ -49,6 +50,9 @@ paymentsRouter.post("/webhooks/stripe", raw, h(async (req, res) => {
     if (s.metadata?.paymentId && s.payment_status === "paid") {
       markPaid(s.metadata.paymentId, typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id);
     }
+  } else if (event.type === "checkout.session.completed" && (event.data.object as Stripe.Checkout.Session).metadata?.kind === "usage_pack") {
+    const s = event.data.object as Stripe.Checkout.Session;
+    if (s.payment_status === "paid") applyPaidPackCheckout(s.id, s.metadata as Record<string, string>);
   } else {
     handleSubscriptionEvent(event);
   }

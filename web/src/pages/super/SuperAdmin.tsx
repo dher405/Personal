@@ -3,6 +3,7 @@ import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { DateTime } from "luxon";
 import { api, money } from "../../api";
 import { useAction, useApi } from "../../hooks";
+import { UsageMeter } from "../../components/UsageMeter";
 
 export function SuperAdmin() {
   return (
@@ -47,6 +48,12 @@ function Businesses() {
   const { data: plans } = useApi<any[]>("/super/plans");
   const action = useAction();
   const patch = (id: string, body: object) => action.run(async () => { await api(`/super/businesses/${id}`, { method: "PATCH", body }); reload(); });
+  const grant = (b: any) => {
+    const metric = prompt(`Give ${b.name} free extra uses this month. Which kind? Type: bookings, sms or ai`, "bookings");
+    if (!metric || !["bookings", "sms", "ai"].includes(metric)) return;
+    const qty = Number(prompt("How many?", "50"));
+    if (qty > 0) action.run(async () => { await api(`/super/businesses/${b.id}/credits`, { body: { metric, quantity: qty } }); reload(); });
+  };
   const addMember = (id: string) => {
     const email = prompt("Email of the user to add as an admin of this business:");
     if (email) action.run(async () => { await api(`/super/businesses/${id}/members`, { body: { email } }); reload(); });
@@ -57,7 +64,7 @@ function Businesses() {
       {action.error && <div className="error">{action.error}</div>}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Business</th><th>Admins</th><th>Plan</th><th>Payments</th><th>Bookings</th><th>Texts (month)</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Business</th><th>Admins</th><th>Plan</th><th>Payments</th><th>Usage this month</th><th>Status</th><th /></tr></thead>
           <tbody>
             {data?.map((b) => (
               <tr key={b.id}>
@@ -70,13 +77,15 @@ function Businesses() {
                   <div className="small muted">{b.plan_status}</div>
                 </td>
                 <td>{b.payment_provider}</td>
-                <td>{b.booking_count}</td>
-                <td>{b.sms_this_month}</td>
+                <td style={{ minWidth: 200 }}>
+                  <div className="stack" style={{ gap: 6 }}>{b.usage.filter((m: any) => m.limit > 0 || m.used > 0).map((m: any) => <UsageMeter key={m.metric} m={m} compact />)}</div>
+                </td>
                 <td>{b.suspended ? <span className="badge bad">suspended</span> : <span className="badge ok">active</span>}</td>
                 <td>
                   <div className="row">
                     <Link className="btn" to={`/admin/${b.id}`}>Manage</Link>
                     <button onClick={() => addMember(b.id)}>Add admin</button>
+                    <button onClick={() => grant(b)}>Give credits</button>
                     <button className={b.suspended ? "" : "danger"} onClick={() => patch(b.id, { suspended: !b.suspended })}>{b.suspended ? "Unsuspend" : "Suspend"}</button>
                   </div>
                 </td>
@@ -158,7 +167,7 @@ function Plans() {
       {action.error && <div className="error">{action.error}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Fee per payment (%)</th><th>Max staff</th><th>Texts / month</th><th>AI chat</th><th /></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Fee per payment (%)</th><th>Max staff</th><th>Online bookings / mo</th><th>Texts / mo</th><th>AI chat</th><th>AI messages / mo</th><th /></tr></thead>
           <tbody>
             {data.map((p, i) => (
               <tr key={i}>
@@ -167,8 +176,10 @@ function Plans() {
                 <td><input type="number" step="0.01" value={p.monthlyPriceCents / 100} onChange={(e) => update(i, { monthlyPriceCents: Math.round(Number(e.target.value) * 100) })} /></td>
                 <td><input type="number" step="0.01" value={p.platformFeeBps / 100} onChange={(e) => update(i, { platformFeeBps: Math.round(Number(e.target.value) * 100) })} /></td>
                 <td><input type="number" value={p.maxStaff} onChange={(e) => update(i, { maxStaff: Number(e.target.value) })} /></td>
+                <td><input type="number" min={0} value={p.bookingsPerMonth} onChange={(e) => update(i, { bookingsPerMonth: Number(e.target.value) })} /></td>
                 <td><input type="number" min={0} value={p.smsPerMonth} onChange={(e) => update(i, { smsPerMonth: Number(e.target.value) })} /></td>
                 <td><input type="checkbox" checked={p.aiChat} onChange={(e) => update(i, { aiChat: e.target.checked })} /></td>
+                <td><input type="number" min={0} value={p.aiMessagesPerMonth} onChange={(e) => update(i, { aiMessagesPerMonth: Number(e.target.value) })} /></td>
                 <td>{p.id !== "free" && <button className="danger" onClick={() => setData(data.filter((_, j) => j !== i))}>Remove</button>}</td>
               </tr>
             ))}
@@ -176,11 +187,55 @@ function Plans() {
         </table>
       </div>
       <div className="row">
-        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, platformFeeBps: 0, maxStaff: 1, aiChat: false, smsPerMonth: 0 }])}>+ Add plan</button>
+        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, platformFeeBps: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 0, smsPerMonth: 0, aiMessagesPerMonth: 0 }])}>+ Add plan</button>
         <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { setData(await api("/super/plans", { method: "PUT", body: data })); setSaved(true); setTimeout(() => setSaved(false), 2000); })}>Save plans</button>
         {saved && <span className="notice small">Saved</span>}
       </div>
-      <p className="small muted">Price changes apply to new subscriptions and plan switches; existing Stripe subscriptions keep their price until changed.</p>
+      <p className="small muted">Price changes apply to new subscriptions and plan switches; existing Stripe subscriptions keep their price until changed. Allowance changes apply immediately.</p>
+      <Packs />
+    </div>
+  );
+}
+
+const PACK_METRICS: Record<string, string> = { bookings: "Online bookings", sms: "Text messages", ai: "AI assistant messages" };
+
+/** Top-up packs businesses can buy when they run low. */
+function Packs() {
+  const { data, setData } = useApi<any[]>("/super/packs");
+  const action = useAction();
+  const [saved, setSaved] = useState(false);
+  if (!data) return null;
+  const update = (i: number, patch: object) => setData(data.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  return (
+    <div className="stack" style={{ marginTop: 16 }}>
+      <h2>Top-up packs</h2>
+      <p className="small muted">What businesses can buy when they run low. The smallest pack of each kind is the one auto top-up adds.</p>
+      {action.error && <div className="error">{action.error}</div>}
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>Adds</th><th>Quantity</th><th>Price ($)</th><th /></tr></thead>
+          <tbody>
+            {data.map((p, i) => (
+              <tr key={i}>
+                <td><input value={p.id} onChange={(e) => update(i, { id: e.target.value })} /></td>
+                <td>
+                  <select value={p.metric} onChange={(e) => update(i, { metric: e.target.value })}>
+                    {Object.entries(PACK_METRICS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
+                </td>
+                <td><input type="number" min={1} value={p.quantity} onChange={(e) => update(i, { quantity: Number(e.target.value) })} /></td>
+                <td><input type="number" step="0.01" min={0} value={p.priceCents / 100} onChange={(e) => update(i, { priceCents: Math.round(Number(e.target.value) * 100) })} /></td>
+                <td><button className="danger" onClick={() => setData(data.filter((_, j) => j !== i))}>Remove</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="row">
+        <button onClick={() => setData([...data, { id: `pack-${data.length + 1}`, metric: "bookings", quantity: 50, priceCents: 1000 }])}>+ Add pack</button>
+        <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { setData(await api("/super/packs", { method: "PUT", body: data })); setSaved(true); setTimeout(() => setSaved(false), 2000); })}>Save packs</button>
+        {saved && <span className="notice small">Saved</span>}
+      </div>
     </div>
   );
 }

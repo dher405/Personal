@@ -130,6 +130,13 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
         </div>
       )}
 
+      {biz.onlineBookingPaused ? (
+        <div className="card stack">
+          <h2>Online booking is unavailable right now</h2>
+          <p>{biz.phone ? <>Please call <a href={`tel:${biz.phone}`}>{biz.phone}</a> to book.</> : "Please contact us directly to book."}</p>
+          <p className="small muted">Already booked? Use the link in your confirmation email or text to view or change your booking.</p>
+        </div>
+      ) : (
       <div className="grid" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
         <div className="card stack">
           <h2>1. Choose a service</h2>
@@ -186,6 +193,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
           </form>
         )}
       </div>
+      )}
 
       {!embed && biz.aiChat && (
         <>

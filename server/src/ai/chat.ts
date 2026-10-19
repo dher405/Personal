@@ -6,6 +6,8 @@ import { newId, one, run, Row } from "../db.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import type { AuthUser } from "../lib/auth.js";
 import { toolsFor, type AiTool, type ToolContext } from "./tools.js";
+import { hasCapacity, recordUse } from "../lib/usage.js";
+import { HttpError } from "../lib/errors.js";
 
 type MessageParam = Anthropic.Beta.BetaMessageParam;
 
@@ -69,6 +71,11 @@ export async function chat(opts: {
 }): Promise<ChatResult> {
   if (!aiAvailable()) throw badRequest("AI chat is not configured on this server (ANTHROPIC_API_KEY)");
   const { kind, business } = opts;
+  if (!hasCapacity(business, "ai")) {
+    throw new HttpError(403, kind === "admin"
+      ? "This month's AI assistant messages are used up. Add more or upgrade under Plan & billing."
+      : "Chat isn't available right now. You can still book using the calendar on this page.");
+  }
 
   let session = opts.sessionId ? one("SELECT * FROM chat_sessions WHERE id = ? AND business_id = ? AND kind = ?", opts.sessionId, business.id, kind) : undefined;
   if (opts.sessionId && !session) throw notFound("Chat session not found");
@@ -146,5 +153,6 @@ export async function chat(opts: {
   }
 
   run("UPDATE chat_sessions SET messages = ?, updated_at = datetime('now') WHERE id = ?", JSON.stringify(messages), session.id);
+  recordUse(business, "ai", `${session.id}:${messages.length}`); // one use per message answered
   return { sessionId: session.id, reply: reply || "Done.", events: ctx.events };
 }

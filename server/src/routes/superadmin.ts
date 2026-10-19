@@ -4,7 +4,8 @@ import { all, audit, one, run } from "../db.js";
 import { actorOf, hashPassword } from "../lib/auth.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
-import { getPlans, savePlans } from "../lib/plans.js";
+import { getPacks, getPlans, savePacks, savePlans } from "../lib/plans.js";
+import { grantCredits, usageFor } from "../lib/usage.js";
 import { setPlan } from "../lib/platformBilling.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 
@@ -23,7 +24,7 @@ superRouter.get("/overview", h(() => ({
 
 superRouter.get("/businesses", h((req) => {
   const q = `%${String(req.query.q ?? "")}%`;
-  return all(
+  const rows = all(
     `SELECT b.id, b.name, b.slug, b.plan, b.plan_status, b.suspended, b.payment_provider, b.created_at,
             (SELECT COUNT(*) FROM bookings k WHERE k.business_id = b.id) AS booking_count,
             (SELECT COUNT(*) FROM sms_messages m WHERE m.business_id = b.id AND m.direction = 'outbound' AND m.status NOT IN ('failed','skipped')
@@ -31,6 +32,7 @@ superRouter.get("/businesses", h((req) => {
             (SELECT GROUP_CONCAT(u.email) FROM business_members m JOIN users u ON u.id = m.user_id WHERE m.business_id = b.id) AS admins
        FROM businesses b WHERE b.name LIKE ? OR b.slug LIKE ? ORDER BY b.created_at DESC LIMIT 500`, q, q,
   );
+  return rows.map((r) => ({ ...r, usage: usageFor(r) }));
 }));
 
 superRouter.patch("/businesses/:id", h((req) => {
@@ -88,11 +90,33 @@ superRouter.post("/users/:id/send-reset", h(async (req) => {
 
 superRouter.get("/plans", h(() => getPlans()));
 
+superRouter.get("/packs", h(() => getPacks()));
+
+superRouter.put("/packs", h((req) => {
+  const packs = parse(z.array(z.object({
+    id: z.string().regex(/^[a-z0-9-]+$/), metric: z.enum(["bookings", "sms", "ai"]),
+    quantity: z.number().int().min(1), priceCents: z.number().int().min(0),
+  })), req.body);
+  savePacks(packs);
+  audit(actorOf(req.user), null, "packs.updated", { packs });
+  return packs;
+}));
+
+/** Free extra uses for this month (support credit, goodwill). */
+superRouter.post("/businesses/:id/credits", h((req) => {
+  const b = one("SELECT * FROM businesses WHERE id = ?", req.params.id);
+  if (!b) throw notFound();
+  const body = parse(z.object({ metric: z.enum(["bookings", "sms", "ai"]), quantity: z.number().int().min(1).max(100000) }), req.body);
+  grantCredits(b.id, { id: "grant", metric: body.metric, quantity: body.quantity, priceCents: 0 }, 1, "grant", actorOf(req.user));
+  return usageFor(b);
+}));
+
 superRouter.put("/plans", h((req) => {
   const plans = parse(z.array(z.object({
     id: z.string().regex(/^[a-z0-9-]+$/), name: z.string().min(1),
     monthlyPriceCents: z.number().int().min(0), platformFeeBps: z.number().int().min(0).max(3000),
     maxStaff: z.number().int().min(1), aiChat: z.boolean(), smsPerMonth: z.number().int().min(0),
+    bookingsPerMonth: z.number().int().min(0), aiMessagesPerMonth: z.number().int().min(0),
   })).min(1), req.body);
   if (!plans.some((p) => p.id === "free")) throw badRequest("A 'free' plan must exist (it is the fallback when subscriptions end)");
   savePlans(plans);

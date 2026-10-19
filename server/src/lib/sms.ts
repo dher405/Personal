@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import { config } from "../config.js";
 import { all, newId, one, run, Row } from "../db.js";
-import { getPlan } from "./plans.js";
+import { checkAlerts, hasCapacity } from "./usage.js";
 
 /**
  * Outbound texting. Uses Twilio when TWILIO_* is configured; otherwise messages
@@ -83,19 +83,22 @@ export async function sendSms(opts: SendOptions): Promise<Row> {
   if (!to) return record("skipped", { error: "Invalid phone number" });
   if (!opts.force && !opts.business.sms_enabled) return record("skipped", { error: "SMS disabled for this business" });
   if (isOptedOut(to)) return record("skipped", { error: "Recipient replied STOP" });
-  const plan = getPlan(opts.business.plan);
-  if (smsUsedThisMonth(opts.business.id) >= plan.smsPerMonth) {
-    return record("skipped", { error: `Monthly text allowance on the ${plan.name} plan (${plan.smsPerMonth}) is used up` });
+  if (!hasCapacity(opts.business, "sms")) {
+    return record("skipped", { error: "Monthly text allowance is used up (buy more or upgrade under Plan & billing)" });
   }
+  let sent: Row;
   if (!smsLive()) {
     if (process.env.NODE_ENV !== "test") console.log(`[sms:simulated] → ${to}: ${opts.body}`);
-    return record("simulated");
+    sent = record("simulated");
+  } else {
+    try {
+      sent = record("sent", { sid: await twilioSend(to, opts.body) });
+    } catch (err) {
+      return record("failed", { error: (err as Error).message });
+    }
   }
-  try {
-    return record("sent", { sid: await twilioSend(to, opts.body) });
-  } catch (err) {
-    return record("failed", { error: (err as Error).message });
-  }
+  checkAlerts(opts.business, "sms").catch((err) => console.error("usage alert failed", err));
+  return sent;
 }
 
 // ---------- Message templates ----------

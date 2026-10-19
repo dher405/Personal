@@ -7,6 +7,7 @@ import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, ser
 import { conflict, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { getPlan } from "../lib/plans.js";
+import { meter } from "../lib/usage.js";
 import { aiAvailable, chat } from "../ai/chat.js";
 import { customerIcs } from "../lib/ics.js";
 import { rateLimit } from "../lib/rateLimit.js";
@@ -19,7 +20,10 @@ function businessBySlug(slug: string) {
   return b;
 }
 
-export const aiChatEnabled = (b: Record<string, any>) => !!b.ai_enabled && getPlan(b.plan).aiChat && aiAvailable();
+/** True when a meter can take another use (auto top-up counts as room). Display-only: doesn't buy anything. */
+const roomFor = (b: Record<string, any>, metric: "bookings" | "ai") => { const m = meter(b, metric); return m.used < m.limit || !!b.auto_topup; };
+
+export const aiChatEnabled = (b: Record<string, any>) => !!b.ai_enabled && getPlan(b.plan).aiChat && aiAvailable() && roomFor(b, "ai");
 
 publicRouter.get("/businesses", h((req) => {
   const q = `%${String(req.query.q ?? "").trim()}%`;
@@ -34,6 +38,7 @@ publicRouter.get("/businesses/:slug", h((req) => {
     cancellationHours: b.cancellation_hours, requirePayment: !!b.require_payment && b.payment_provider !== "none",
     aiChat: aiChatEnabled(b),
     smsEnabled: !!b.sms_enabled,
+    onlineBookingPaused: !roomFor(b, "bookings"),
     services: all("SELECT id, name, description, category, duration_min, price_cents, deposit_cents FROM services WHERE business_id = ? AND active = 1 ORDER BY category, name", b.id),
     staff: all(
       `SELECT s.id, s.name, s.bio, GROUP_CONCAT(ss.service_id) AS service_ids FROM staff s

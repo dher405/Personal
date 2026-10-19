@@ -14,9 +14,11 @@ import { startPlanCheckout, openBillingPortal } from "../lib/platformBilling.js"
 import { chat } from "../ai/chat.js";
 import { aiChatEnabled } from "./public.js";
 import { config } from "../config.js";
-import { normalizePhone, sendSms, smsLive, smsUsedThisMonth, templates } from "../lib/sms.js";
+import { normalizePhone, sendSms, smsLive, templates } from "../lib/sms.js";
 import { handleInboundSms } from "../lib/smsInbound.js";
 import { parseReminderHours } from "../lib/reminders.js";
+import { buyPacks, currentPeriod, meter, usageFor } from "../lib/usage.js";
+import { getPacks } from "../lib/plans.js";
 
 export const adminRouter = Router({ mergeParams: true });
 
@@ -54,7 +56,8 @@ function publicSettings(b: Record<string, any>) {
     },
     plan_details: getPlan(b.plan),
     ai_chat_active: aiChatEnabled(b),
-    sms_usage: { used: smsUsedThisMonth(b.id), allowance: getPlan(b.plan).smsPerMonth, live: smsLive() },
+    sms_usage: { used: meter(b, "sms").used, allowance: meter(b, "sms").limit, live: smsLive() },
+    usage: usageFor(b),
   };
 }
 
@@ -323,6 +326,36 @@ adminRouter.put("/payment-provider", h(async (req) => {
 
 adminRouter.get("/plans", h(() => getPlans()));
 
+// ---------- Usage (usage-based pricing) ----------
+
+adminRouter.get("/usage", h((req) => {
+  const b = business(req);
+  return {
+    period: currentPeriod(),
+    resetsOn: DateTime.utc().plus({ months: 1 }).startOf("month").toISODate(),
+    meters: usageFor(b),
+    packs: getPacks(),
+    autoTopUp: !!b.auto_topup,
+    // Auto top-up bills the card on the platform subscription; free plans have none until they buy something.
+    canAutoTopUp: !config.stripe.secretKey || !!b.platform_customer_id,
+    purchases: all("SELECT metric, quantity, source, price_cents, charge_status, created_at FROM usage_credits WHERE business_id = ? ORDER BY created_at DESC LIMIT 50", b.id),
+  };
+}));
+
+adminRouter.post("/usage/packs", h(async (req) => {
+  const body = parse(z.object({ packId: z.string(), packs: z.number().int().min(1).max(20) }), req.body);
+  return buyPacks(business(req), body.packId, body.packs, req.user!);
+}));
+
+adminRouter.put("/usage/auto-topup", h((req) => {
+  const { enabled } = parse(z.object({ enabled: z.boolean() }), req.body);
+  const b = business(req);
+  if (enabled && config.stripe.secretKey && !b.platform_customer_id) throw badRequest("Add a card first: subscribe to a plan or buy a pack once, then turn on auto top-up.");
+  run("UPDATE businesses SET auto_topup = ? WHERE id = ?", Number(enabled), b.id);
+  audit(actor(req), b.id, "usage.auto_topup", { enabled });
+  return { ok: true };
+}));
+
 adminRouter.post("/billing/checkout", h(async (req) => {
   const body = parse(z.object({ planId: z.string() }), req.body);
   return startPlanCheckout(business(req), body.planId, req.user!, actor(req));
@@ -342,7 +375,7 @@ adminRouter.post("/assistant", h(async (req) => {
 // ---------- Text messages ----------
 
 adminRouter.get("/sms", h((req) => ({
-  usage: { used: smsUsedThisMonth(bid(req)), allowance: getPlan(business(req).plan).smsPerMonth, live: smsLive() },
+  usage: { used: meter(business(req), "sms").used, allowance: meter(business(req), "sms").limit, live: smsLive() },
   messages: all("SELECT * FROM sms_messages WHERE business_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 200", bid(req)),
 })));
 
