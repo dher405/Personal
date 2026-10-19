@@ -238,6 +238,33 @@ CREATE TABLE IF NOT EXISTS user_identities (
 );
 `);
 
+// --- Calendars: customer invites, owner feeds, Google/Outlook sync ---
+addColumn("bookings", "ics_sequence", "INTEGER NOT NULL DEFAULT 0");
+addColumn("businesses", "calendar_feed_token", "TEXT");
+addColumn("businesses", "email_admin_alerts", "INTEGER NOT NULL DEFAULT 1");
+db.exec(`
+CREATE TABLE IF NOT EXISTS calendar_connections (
+  id TEXT PRIMARY KEY,
+  staff_id TEXT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL CHECK (provider IN ('google','microsoft')),
+  account_email TEXT,
+  tokens TEXT NOT NULL,            -- encrypted {accessToken, refreshToken, expiresAt}
+  calendar_id TEXT NOT NULL DEFAULT 'primary',
+  check_busy INTEGER NOT NULL DEFAULT 1,
+  reminder_min INTEGER NOT NULL DEFAULT 30,
+  last_synced_at TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (staff_id, provider)
+);
+CREATE TABLE IF NOT EXISTS calendar_events (
+  booking_id TEXT NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+  connection_id TEXT NOT NULL REFERENCES calendar_connections(id) ON DELETE CASCADE,
+  external_id TEXT NOT NULL,
+  PRIMARY KEY (booking_id, connection_id)
+);
+`);
+
 export type Row = Record<string, any>;
 
 export function one<T = Row>(sql: string, ...params: any[]): T | undefined {

@@ -4,7 +4,7 @@ import { DateTime } from "luxon";
 import { all, audit, newId, one, run, tx } from "../db.js";
 import { actorOf, assertBusinessAccess } from "../lib/auth.js";
 import { createBooking, getBooking, cancelBooking, refundPayment, rescheduleBooking, serializeBooking } from "../lib/bookings.js";
-import { findSlots } from "../lib/availability.js";
+import { findSlotsLive } from "../lib/availability.js";
 import { decryptJson, encryptJson } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
@@ -226,9 +226,9 @@ adminRouter.get("/bookings", h((req) => {
   return all(sql + " ORDER BY starts_at LIMIT 500", ...params).map((b) => serializeBooking(b));
 }));
 
-adminRouter.get("/slots", h((req) => {
+adminRouter.get("/slots", h(async (req) => {
   const q = parse(z.object({ serviceId: z.string(), from: z.string(), to: z.string().optional(), staffId: z.string().optional(), excludeBookingId: z.string().optional() }), req.query);
-  return findSlots({ businessId: bid(req), serviceId: q.serviceId, from: q.from, to: q.to ?? q.from, staffId: q.staffId, excludeBookingId: q.excludeBookingId });
+  return findSlotsLive({ businessId: bid(req), serviceId: q.serviceId, from: q.from, to: q.to ?? q.from, staffId: q.staffId, excludeBookingId: q.excludeBookingId });
 }));
 
 adminRouter.post("/bookings", h((req) => {

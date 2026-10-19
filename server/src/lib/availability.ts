@@ -1,5 +1,6 @@
 import { DateTime, Interval } from "luxon";
 import { all, one, Row } from "../db.js";
+import { externalBusy } from "./calendarSync.js";
 
 export interface Slot { start: string; end: string; staffId: string; staffName: string }
 
@@ -13,6 +14,8 @@ interface SlotQuery {
   /** Ignore this booking when checking conflicts (used when rescheduling). */
   excludeBookingId?: string;
   now?: DateTime;
+  /** Busy times from staff's connected Google/Outlook calendars (see findSlotsLive). */
+  externalBusy?: Map<string, Interval[]>;
 }
 
 export function eligibleStaff(businessId: string, serviceId: string, staffId?: string) {
@@ -67,7 +70,7 @@ export function findSlots(q: SlotQuery): Slot[] {
 
   for (const staff of eligibleStaff(q.businessId, q.serviceId, q.staffId)) {
     const rules = all("SELECT weekday, start_time, end_time FROM availability_rules WHERE staff_id = ?", staff.id);
-    const busy = busyIntervals(staff.id, day, lastDay, q.excludeBookingId);
+    const busy = [...busyIntervals(staff.id, day, lastDay, q.excludeBookingId), ...(q.externalBusy?.get(staff.id) ?? [])];
 
     for (let d = day; d <= lastDay && d < maxDay; d = d.plus({ days: 1 })) {
       for (const rule of rules.filter((r: Row) => r.weekday === d.weekday)) {
@@ -101,4 +104,29 @@ export function isSlotAvailable(businessId: string, serviceId: string, staffId: 
   return findSlots({ businessId, serviceId, staffId, from: day, to: day, excludeBookingId }).some(
     (s) => DateTime.fromISO(s.start).toMillis() === startDt.toMillis(),
   );
+}
+
+/** The query's date range as instants in the business's time zone (for calendar look-ups). */
+function rangeOf(q: { businessId: string; from: string; to: string }) {
+  const business = one("SELECT timezone FROM businesses WHERE id = ?", q.businessId);
+  const zone = business?.timezone ?? "UTC";
+  return { zone, from: DateTime.fromISO(q.from, { zone }).startOf("day"), to: DateTime.fromISO(q.to, { zone }).endOf("day") };
+}
+
+/** findSlots plus busy times from connected calendars. Use this for anything shown to customers. */
+export async function findSlotsLive(q: Omit<SlotQuery, "externalBusy">): Promise<Slot[]> {
+  const { zone, from, to } = rangeOf(q);
+  if (!from.isValid || !to.isValid) return [];
+  const staffIds = eligibleStaff(q.businessId, q.serviceId, q.staffId).map((s) => s.id);
+  return findSlots({ ...q, externalBusy: await externalBusy(staffIds, from, DateTime.min(to, from.plus({ days: 32 })), zone) });
+}
+
+/** Last check before a customer books or moves: is the time still free in the staff member's own calendar? */
+export async function freeInConnectedCalendars(businessId: string, staffId: string, start: string, serviceId: string) {
+  const service = one("SELECT duration_min FROM services WHERE id = ?", serviceId);
+  const s = DateTime.fromISO(start, { zone: "utc" });
+  if (!service || !s.isValid) return true;
+  const block = Interval.fromDateTimes(s, s.plus({ minutes: service.duration_min }));
+  const busy = await externalBusy([staffId], s.minus({ hours: 12 }), s.plus({ hours: 12 }), "UTC");
+  return !(busy.get(staffId) ?? []).some((b) => b.overlaps(block));
 }

@@ -6,6 +6,7 @@ import { useAuth } from "../auth";
 import { useAction, useApi } from "../hooks";
 import { SlotPicker, type Slot } from "../components/SlotPicker";
 import { ChatWidget } from "../components/ChatWidget";
+import { AddToCalendar } from "../components/AddToCalendar";
 
 /** Tells the page that embeds us (embed.js) how tall we are, so its iframe never shows a scrollbar. */
 function useReportHeight(enabled: boolean) {
@@ -98,6 +99,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
           <p>{done.serviceName} with {done.staffName}<br />
             <strong>{DateTime.fromISO(done.start).setZone(biz.timezone).toLocaleString(DateTime.DATETIME_HUGE)}</strong></p>
           <p>Booking code: <strong>{done.code}</strong>. A confirmation goes to {done.customerEmail}.</p>
+          <AddToCalendar links={done.calendarLinks} />
           {embed
             ? <a href={manageHref(done)} className="btn" {...newTab}>Manage or reschedule</a>
             : <Link to={manageHref(done)} className="btn">Manage or reschedule</Link>}

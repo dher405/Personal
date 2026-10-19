@@ -8,6 +8,7 @@ import { badRequest, conflict, forbidden, notFound } from "./errors.js";
 import { platformFeeFor } from "./plans.js";
 import { changedBy, notify } from "./notify.js";
 import { normalizePhone } from "./sms.js";
+import { addToCalendarLinks } from "./ics.js";
 
 type Actor = { id?: string | null; label: string };
 
@@ -56,7 +57,9 @@ export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) 
     source: b.source,
     createdAt: b.created_at,
     payments,
-    ...(opts.includeToken ? { manageToken: b.manage_token, manageUrl: `${config.webUrl}/manage/${b.manage_token}` } : {}),
+    ...(opts.includeToken
+      ? { manageToken: b.manage_token, manageUrl: `${config.webUrl}/manage/${b.manage_token}`, calendarLinks: addToCalendarLinks(b) }
+      : {}),
   };
 }
 
@@ -206,7 +209,7 @@ export function rescheduleBooking(bookingId: string, newStart: string, opts: { s
       throw conflict("That time is not available");
     }
     run(
-      "UPDATE bookings SET starts_at = ?, ends_at = ?, staff_id = ? WHERE id = ?",
+      "UPDATE bookings SET starts_at = ?, ends_at = ?, staff_id = ?, ics_sequence = ics_sequence + 1 WHERE id = ?",
       start.toISO(), start.plus({ minutes: service.duration_min }).toISO(), staffId, booking.id,
     );
     audit(actor, booking.business_id, "booking.rescheduled", { bookingId, from: booking.starts_at, to: start.toISO(), staffId });
@@ -233,7 +236,7 @@ export async function cancelBooking(bookingId: string, opts: { byCustomer: boole
       throw forbidden(`Online cancellation closes ${business.cancellation_hours}h before the appointment. Please contact ${business.name}.`);
     }
   }
-  run("UPDATE bookings SET status = 'cancelled' WHERE id = ?", booking.id);
+  run("UPDATE bookings SET status = 'cancelled', ics_sequence = ics_sequence + 1 WHERE id = ?", booking.id);
   audit(actor, booking.business_id, "booking.cancelled", { bookingId, reason: opts.reason ?? "", byCustomer: opts.byCustomer });
   if (opts.byCustomer) {
     for (const p of all("SELECT id FROM payments WHERE booking_id = ? AND status IN ('paid','partially_refunded')", booking.id)) {

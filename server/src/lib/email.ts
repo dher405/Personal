@@ -1,6 +1,9 @@
 import { config } from "../config.js";
 
-export interface Email { to: string; subject: string; text: string; html?: string }
+export interface Attachment { filename: string; content: string; contentType: string }
+export interface Email { to: string; subject: string; text: string; html?: string; attachments?: Attachment[] }
+
+const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
 
 /**
  * Transactional email through Resend or Postmark (whichever key is set).
@@ -14,7 +17,10 @@ export async function sendEmail(msg: Email): Promise<{ delivered: boolean }> {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${config.email.resendApiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: config.email.from, to: [msg.to], subject: msg.subject, text: msg.text, html: msg.html }),
+      body: JSON.stringify({
+        from: config.email.from, to: [msg.to], subject: msg.subject, text: msg.text, html: msg.html,
+        attachments: msg.attachments?.map((a) => ({ filename: a.filename, content: b64(a.content), content_type: a.contentType })),
+      }),
     });
     if (!res.ok) throw new Error(`Resend error ${res.status}: ${await res.text()}`);
     return { delivered: true };
@@ -23,7 +29,10 @@ export async function sendEmail(msg: Email): Promise<{ delivered: boolean }> {
     const res = await fetch("https://api.postmarkapp.com/email", {
       method: "POST",
       headers: { "X-Postmark-Server-Token": config.email.postmarkToken, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ From: config.email.from, To: msg.to, Subject: msg.subject, TextBody: msg.text, HtmlBody: msg.html, MessageStream: "outbound" }),
+      body: JSON.stringify({
+        From: config.email.from, To: msg.to, Subject: msg.subject, TextBody: msg.text, HtmlBody: msg.html, MessageStream: "outbound",
+        Attachments: msg.attachments?.map((a) => ({ Name: a.filename, Content: b64(a.content), ContentType: a.contentType })),
+      }),
     });
     if (!res.ok) throw new Error(`Postmark error ${res.status}: ${await res.text()}`);
     return { delivered: true };

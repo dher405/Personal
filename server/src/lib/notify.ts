@@ -1,7 +1,9 @@
 import { DateTime } from "luxon";
 import { config } from "../config.js";
-import { one, type Row } from "../db.js";
+import { all, one, type Row } from "../db.js";
 import { sendEmail } from "./email.js";
+import { addToCalendarLinks, inviteIcs } from "./ics.js";
+import { syncBookingToCalendars } from "./calendarSync.js";
 import { sendSms, templates } from "./sms.js";
 
 export type NotificationKind = "booking_confirmed" | "booking_rescheduled" | "booking_cancelled" | "customer_confirmed";
@@ -35,6 +37,9 @@ const adminLabel: Record<NotificationKind, string> = {
  */
 export function notify(kind: NotificationKind, booking: Row, by: ChangedBy = "customer") {
   dispatchEmail(kind, booking).catch((err) => console.error("email dispatch failed", err));
+  if (by !== "staff") dispatchAdminEmail(kind, booking).catch((err) => console.error("admin email failed", err));
+  // Owners' and staff's connected Google/Outlook calendars follow every change, whoever made it.
+  if (kind !== "customer_confirmed") syncBookingToCalendars(booking.id).catch((err) => console.error("calendar sync failed", err));
   dispatchSms(kind, booking, by).catch((err) => console.error("sms dispatch failed", err));
 }
 
@@ -77,13 +82,49 @@ export async function dispatchEmail(kind: NotificationKind, booking: Row) {
         `Booking code: ${booking.code}`,
         `Need to reschedule or cancel? ${manage}` + (business.cancellation_hours ? ` (online changes close ${business.cancellation_hours} hours before)` : ""),
       ];
+  if (kind !== "booking_cancelled") {
+    const links = addToCalendarLinks(booking);
+    lines.push(`Add it to your calendar: the attached invite works in Gmail, Outlook and Apple Mail, or use Google Calendar ${links.google} or Outlook ${links.outlook}`);
+  }
   if (business.phone) lines.push(`Questions? Call ${business.name} at ${business.phone}.`);
   await sendEmail({
     to: booking.customer_email,
     subject: `${subject}: ${service.name} with ${business.name}`,
     text: lines.join("\n\n"),
     html: lines.map((l) => `<p>${escapeHtml(l).replace(/\n/g, "<br>").replace(/(https?:\/\/\S+)/g, '<a href="$1">$1</a>')}</p>`).join(""),
+    // Same UID every time with a rising SEQUENCE: mail apps update or remove the one calendar entry.
+    attachments: [{
+      filename: kind === "booking_cancelled" ? "cancel.ics" : "invite.ics",
+      content: inviteIcs(booking, kind === "booking_cancelled" ? "CANCEL" : "REQUEST"),
+      contentType: `text/calendar; charset=utf-8; method=${kind === "booking_cancelled" ? "CANCEL" : "REQUEST"}`,
+    }],
   });
+}
+
+const adminSubjects: Record<NotificationKind, string> = {
+  booking_confirmed: "New booking",
+  booking_rescheduled: "Booking moved",
+  booking_cancelled: "Booking cancelled",
+  customer_confirmed: "Customer confirmed",
+};
+
+/** Emails the business's admins when a customer books, moves, confirms or cancels (switch in Calendar sync). */
+export async function dispatchAdminEmail(kind: NotificationKind, booking: Row) {
+  const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id)!;
+  if (!business.email_admin_alerts) return;
+  const service = one("SELECT name FROM services WHERE id = ?", booking.service_id)!;
+  const staff = one("SELECT name FROM staff WHERE id = ?", booking.staff_id)!;
+  const when = DateTime.fromISO(booking.starts_at).setZone(business.timezone).toFormat("ccc LLL d 'at' h:mm a");
+  const admins = all("SELECT u.email FROM business_members m JOIN users u ON u.id = m.user_id WHERE m.business_id = ?", business.id);
+  const text = [
+    `${adminSubjects[kind]}: ${booking.customer_name}, ${service.name} with ${staff.name}, ${when}.`,
+    `Email: ${booking.customer_email}${booking.customer_phone ? ` · Phone: ${booking.customer_phone}` : ""}`,
+    booking.notes ? `Notes: ${booking.notes}` : "",
+    `Booking code ${booking.code}: ${config.webUrl}/admin/${business.id}/bookings`,
+  ].filter(Boolean).join("\n\n");
+  for (const a of admins) {
+    await sendEmail({ to: a.email, subject: `${adminSubjects[kind]}: ${booking.customer_name}, ${when}`, text });
+  }
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);

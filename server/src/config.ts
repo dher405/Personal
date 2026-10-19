@@ -55,6 +55,17 @@ export const config = {
       authUrl: env.GOOGLE_AUTH_URL ?? "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: env.GOOGLE_TOKEN_URL ?? "https://oauth2.googleapis.com/token",
     },
+    microsoft: {
+      // Azure portal → App registrations; "Accounts in any organizational directory and personal Microsoft accounts".
+      clientId: env.MICROSOFT_CLIENT_ID ?? "",
+      clientSecret: env.MICROSOFT_CLIENT_SECRET ?? "",
+      authUrl: env.MICROSOFT_AUTH_URL ?? "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      tokenUrl: env.MICROSOFT_TOKEN_URL ?? "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    },
+    calendarApis: {
+      google: env.GOOGLE_CALENDAR_API ?? "https://www.googleapis.com/calendar/v3",
+      graph: env.MS_GRAPH_URL ?? "https://graph.microsoft.com/v1.0",
+    },
     apple: {
       // The Services ID (not the App ID) from developer.apple.com, e.g. com.slotwise.web
       clientId: env.APPLE_SERVICES_ID ?? "",

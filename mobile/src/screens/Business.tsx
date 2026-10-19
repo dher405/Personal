@@ -56,6 +56,12 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
           <P>{done.serviceName} with {done.staffName}</P>
           <P>{fmt(done.start, "cccc d LLLL, h:mm a")}</P>
           <P muted small>Code {done.code} · confirmation sent to {done.customerEmail}</P>
+          {done.status === "confirmed" && done.calendarLinks && (
+            <>
+              <Button title="Add to Google Calendar" onPress={() => Linking.openURL(done.calendarLinks.google)} />
+              <Button title="Add to Apple / Outlook calendar" onPress={() => Linking.openURL(done.calendarLinks.ics)} />
+            </>
+          )}
           <Button title="Manage booking" onPress={() => Linking.openURL(done.manageUrl)} />
           <Button title="Done" onPress={nav.back} />
         </Card>

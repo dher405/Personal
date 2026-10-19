@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { api, money } from "../api";
 import { useAction, useApi } from "../hooks";
 import { SlotPicker, type Slot } from "../components/SlotPicker";
+import { AddToCalendar } from "../components/AddToCalendar";
 
 const statusBadge: Record<string, string> = { confirmed: "ok", pending_payment: "warn", cancelled: "bad", completed: "", no_show: "bad" };
 
@@ -41,6 +42,7 @@ export function ManageBooking() {
             Complete payment
           </button>
         )}
+        {b.status === "confirmed" && <AddToCalendar links={b.calendarLinks} />}
         {active && (b.customerConfirmedAt ? <span className="badge ok">You confirmed you'll be there</span> : (
           <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { await api(`/public/manage/${token}/confirm`, { method: "POST", body: {} }); reload(); })}>
             ✓ I'll be there

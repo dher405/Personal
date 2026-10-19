@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { DateTime } from "luxon";
 import { all, audit, newId, one, run, Row } from "../db.js";
-import { findSlots } from "../lib/availability.js";
+import { findSlotsLive, freeInConnectedCalendars } from "../lib/availability.js";
 import { cancelBooking, createBooking, getBooking, rescheduleBooking, serializeBooking, startPayment } from "../lib/bookings.js";
 import type { AuthUser } from "../lib/auth.js";
 
@@ -91,8 +91,8 @@ const findTimes = tool({
     date_to: z.string().optional().describe("YYYY-MM-DD, inclusive; defaults to date_from"),
     staff_id: z.string().optional(),
   }),
-  run: (input, ctx) => {
-    const slots = findSlots({
+  run: async (input, ctx) => {
+    const slots = await findSlotsLive({
       businessId: ctx.business.id,
       serviceId: input.service_id,
       from: input.date_from,
@@ -125,6 +125,9 @@ const customerTools: AiTool[] = [
       notes: z.string().optional(),
     }),
     run: async (input, ctx) => {
+      if (!(await freeInConnectedCalendars(ctx.business.id, input.staff_id, input.start_utc, input.service_id))) {
+        throw new Error("That time was just taken. Check find_available_times again and offer another.");
+      }
       const booking = createBooking({
         businessId: ctx.business.id,
         serviceId: input.service_id,
@@ -158,8 +161,11 @@ const customerTools: AiTool[] = [
     name: "reschedule_booking",
     description: "Move a customer's booking to a new available time (from find_available_times). Confirm the new time with the customer first.",
     schema: z.object({ booking_code: z.string(), email: z.string(), new_start_utc: z.string(), staff_id: z.string().optional() }),
-    run: (input, ctx) => {
+    run: async (input, ctx) => {
       const b = bookingByCodeAndEmail(ctx, input.booking_code, input.email);
+      if (!(await freeInConnectedCalendars(ctx.business.id, input.staff_id ?? b.staff_id, input.new_start_utc, b.service_id))) {
+        throw new Error("That time isn't available. Check find_available_times again.");
+      }
       const updated = rescheduleBooking(b.id, input.new_start_utc, { staffId: input.staff_id }, actorFor(ctx));
       ctx.events.push({ type: "booking_updated", bookingId: b.id });
       return describeBooking(updated, ctx.business.timezone);

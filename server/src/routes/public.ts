@@ -2,12 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { DateTime } from "luxon";
 import { all, one } from "../db.js";
-import { findSlots } from "../lib/availability.js";
+import { findSlotsLive, freeInConnectedCalendars } from "../lib/availability.js";
 import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, serializeBooking, startPayment } from "../lib/bookings.js";
-import { forbidden, notFound } from "../lib/errors.js";
+import { conflict, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { getPlan } from "../lib/plans.js";
 import { aiAvailable, chat } from "../ai/chat.js";
+import { customerIcs } from "../lib/ics.js";
 import { rateLimit } from "../lib/rateLimit.js";
 
 export const publicRouter = Router();
@@ -44,7 +45,7 @@ publicRouter.get("/businesses/:slug", h((req) => {
 publicRouter.get("/businesses/:slug/slots", h((req) => {
   const b = businessBySlug(req.params.slug as string);
   const q = parse(z.object({ serviceId: z.string(), from: z.string(), to: z.string().optional(), staffId: z.string().optional() }), req.query);
-  return findSlots({ businessId: b.id, serviceId: q.serviceId, from: q.from, to: q.to ?? q.from, staffId: q.staffId });
+  return findSlotsLive({ businessId: b.id, serviceId: q.serviceId, from: q.from, to: q.to ?? q.from, staffId: q.staffId });
 }));
 
 publicRouter.post("/businesses/:slug/bookings", rateLimit({ windowMs: 60_000, max: 10 }), h(async (req) => {
@@ -60,6 +61,7 @@ publicRouter.post("/businesses/:slug/bookings", rateLimit({ windowMs: 60_000, ma
     source: z.enum(["web", "mobile"]).default("web"),
     smsOptIn: z.boolean().optional(),
   }), req.body);
+  if (body.staffId && !(await freeInConnectedCalendars(b.id, body.staffId, body.start, body.serviceId))) throw conflict("That time is no longer available");
   const booking = createBooking({
     businessId: b.id, serviceId: body.serviceId, staffId: body.staffId, start: body.start,
     customer: { name: body.name, email: body.email, phone: body.phone },
@@ -90,13 +92,14 @@ publicRouter.get("/manage/:token", h((req) => {
   return { booking: serializeBooking(b, { includeToken: true }), business: biz };
 }));
 
-publicRouter.post("/manage/:token/reschedule", h((req) => {
+publicRouter.post("/manage/:token/reschedule", h(async (req) => {
   const b = bookingByToken(req.params.token as string);
   const body = parse(z.object({ start: z.string(), staffId: z.string().optional() }), req.body);
   const biz = one("SELECT cancellation_hours FROM businesses WHERE id = ?", b.business_id)!;
   if (DateTime.fromISO(b.starts_at).diffNow("hours").hours < biz.cancellation_hours) {
     throw forbidden(`Online changes close ${biz.cancellation_hours}h before the appointment`);
   }
+  if (!(await freeInConnectedCalendars(b.business_id, body.staffId ?? b.staff_id, body.start, b.service_id))) throw conflict("That time is not available");
   return serializeBooking(rescheduleBooking(b.id, body.start, { staffId: body.staffId }, { label: `customer:${b.customer_email}` }), { includeToken: true });
 }));
 
@@ -109,6 +112,14 @@ publicRouter.post("/manage/:token/cancel", h(async (req) => {
 publicRouter.post("/manage/:token/confirm", h((req) => {
   const b = bookingByToken(req.params.token as string);
   return serializeBooking(confirmAttendance(b.id, { label: `customer:${b.customer_email}` }), { includeToken: true });
+}));
+
+/** "Add to Apple Calendar / Outlook": an .ics file the calendar app opens directly. */
+publicRouter.get("/manage/:token/calendar.ics", h((req, res) => {
+  const b = bookingByToken(req.params.token as string);
+  res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+  res.setHeader("Content-Disposition", `inline; filename="booking-${b.code}.ics"`);
+  res.send(customerIcs(b));
 }));
 
 publicRouter.post("/manage/:token/pay", h(async (req) => {

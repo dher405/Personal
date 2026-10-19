@@ -11,6 +11,7 @@ import { adminRouter } from "./routes/admin.js";
 import { superRouter } from "./routes/superadmin.js";
 import { paymentsRouter } from "./routes/payments.js";
 import { smsWebhookRouter } from "./routes/sms.js";
+import { adminCalendarRouter, calendarPublicRouter } from "./routes/calendars.js";
 
 export function createApp() {
   const app = express();
@@ -24,7 +25,9 @@ export function createApp() {
   app.use(optionalAuth);
   app.use("/api/auth", authRouter);
   app.use("/api/public", publicRouter);
+  app.use("/api", calendarPublicRouter);
   app.use("/api/admin/:bid", requireAuth, adminRouter);
+  app.use("/api/admin/:bid", requireAuth, adminCalendarRouter);
   app.use("/api/super", requireAuth, requireSuperAdmin, superRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 

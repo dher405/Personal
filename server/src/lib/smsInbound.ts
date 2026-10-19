@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import { all, newId, one, run, Row } from "../db.js";
 import { aiChatEnabled } from "../routes/public.js";
 import { chat } from "../ai/chat.js";
-import { findSlots } from "./availability.js";
+import { findSlotsLive } from "./availability.js";
 import { cancelBooking, confirmAttendance, rescheduleBooking } from "./bookings.js";
 import { getPlan } from "./plans.js";
 import { agendaText, normalizePhone, platformFromNumber, sendSms, templates } from "./sms.js";
@@ -68,12 +68,12 @@ function bookingForPhone(phone: string, convo: Conversation): Row | undefined {
 }
 
 /** Up to three new times for the same service and staff, spread across different days where possible. */
-function rescheduleOptions(b: Row, business: Row) {
+async function rescheduleOptions(b: Row, business: Row) {
   const today = DateTime.now().setZone(business.timezone);
-  const slots = findSlots({
+  const slots = (await findSlotsLive({
     businessId: b.business_id, serviceId: b.service_id, staffId: b.staff_id,
     from: today.toISODate()!, to: today.plus({ days: 14 }).toISODate()!, excludeBookingId: b.id,
-  }).filter((s) => s.start !== DateTime.fromISO(b.starts_at).toUTC().toISO());
+  })).filter((s) => s.start !== DateTime.fromISO(b.starts_at).toUTC().toISO());
   const picked: typeof slots = [];
   const days = new Set<string>();
   for (const s of slots) {
@@ -164,7 +164,7 @@ async function handleCustomerText(from: string, body: string, word: string): Pro
 
   if (RESCHEDULE.has(word)) {
     if (tooLate) return reply(`Changes by text close ${business.cancellation_hours}h before your appointment.${callUs}`);
-    const options = rescheduleOptions(booking, business);
+    const options = await rescheduleOptions(booking, business);
     if (!options.length) return reply(`No other times are open in the next 2 weeks. Reply X to cancel, or see ${config.webUrl}/manage/${booking.manage_token}`);
     convo.state = { awaiting: "choice", bookingId: booking.id, options: options.map((o) => ({ start: o.start, staffId: o.staffId })) };
     const lines = options.map((o, i) => `${i + 1}) ${fmt(o.start, business.timezone)}`).join("\n");

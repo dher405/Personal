@@ -116,6 +116,26 @@ Options: `data-service` (open on one service), `data-color`, `data-theme="dark"`
 - Only `/embed/*` may be framed by other sites. Every other page sends `frame-ancestors 'self'`, so admin screens can't be clickjacked.
 - Customers get confirmation, reschedule and cancellation **emails** (via Resend/Postmark) in addition to the optional texts.
 
+## Calendars
+
+**Customers.** After booking, and on their manage page, customers get **Add to calendar** buttons: Google Calendar, Outlook.com, Outlook work/school, and an `.ics` file for Apple Calendar and everything else. Every booking email carries a calendar invitation. It keeps the same UID and a rising SEQUENCE, so Gmail, Outlook and Apple Mail move the existing entry when the booking is rescheduled and remove it when it's cancelled.
+
+**Business owners and staff (Admin → Calendar sync).**
+- **Connect Google Calendar or Outlook** per staff member, using OAuth with offline access; tokens are stored encrypted.
+  - Bookings are written to that calendar the moment they're made, moved or cancelled, with a popup reminder at the chosen time.
+  - Busy events in that calendar block those times on the booking page. Events marked free, cancelled events, and Slotwise's own events don't block. Results are cached for 60 seconds, and if a calendar can't be read, times stay bookable and the error is shown.
+  - Changes made inside Google/Outlook do *not* flow back; the event description says so.
+- **Subscribe link** (read-only `.ics` feed, whole business or per person). Works with any calendar app with no account connection, but calendar apps refresh feeds only every few hours.
+- **Email alerts** to every admin when customers book, confirm, reschedule or cancel.
+
+**Setup.**
+- **Google:** in the same Google Cloud project as sign-in, enable the **Google Calendar API**. Add the scope `.../auth/calendar.events` to the OAuth consent screen, and add the redirect URI `https://<your-site>/api/integrations/google/callback`. Google requires app verification for this scope before the general public can use it; up to 100 test users work before that.
+- **Microsoft:** in the [Azure portal](https://portal.azure.com) → App registrations → New registration, choose "Accounts in any organizational directory and personal Microsoft accounts".
+  1. Add a Web redirect URI: `https://<your-site>/api/integrations/microsoft/callback`.
+  2. Under API permissions, add delegated `Calendars.ReadWrite`, `User.Read` and `offline_access`.
+  3. Create a client secret.
+  4. Set `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET`.
+
 ## Sign-in, password resets, Google and Apple
 
 - **Forgot password:** the sign-in page has a "Forgot password?" link. People enter their email and get a single-use link that expires in 1 hour. Using it signs them out on every other device. The reply is the same whether or not the email has an account, so the form can't be used to find out who's registered.
