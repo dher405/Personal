@@ -21,9 +21,21 @@ export interface SupportSettings {
   onBusinessReply: boolean;
   /** Also copy the notify list on replies sent from Super admin (handy when several people answer cases). */
   onSupportReply: boolean;
+  /** The support assistant analyses new cases and business replies and drafts a reply (never sent without the super admin). */
+  aiAutoTriage: boolean;
+  /** Extra guidance for the support assistant (tone, policies, things to always check). */
+  aiInstructions: string;
 }
 
-const DEFAULTS: SupportSettings = { notifyEmails: [], onNewCase: true, onBusinessReply: true, onSupportReply: false };
+const DEFAULTS: SupportSettings = { notifyEmails: [], onNewCase: true, onBusinessReply: true, onSupportReply: false, aiAutoTriage: true, aiInstructions: "" };
+
+/** Kicks off the support assistant for a case, if it's set up and switched on. Loaded lazily (it pulls in the AI SDK). */
+function autoTriage(caseId: string) {
+  if (!supportSettings().aiAutoTriage) return;
+  import("../ai/supportAgent.js").then(({ startTriage, supportAiAvailable }) => {
+    if (supportAiAvailable()) startTriage(caseId);
+  }).catch((err) => console.error("support triage didn't start", err));
+}
 
 export function supportSettings(): SupportSettings {
   const row = one<{ value: string }>("SELECT value FROM platform_settings WHERE key = 'support'");
@@ -84,6 +96,7 @@ export function createCase(business: Row, user: AuthUser, input: { subject: stri
   });
   const ref = caseRef(c.number);
   const settings = supportSettings();
+  autoTriage(c.id);
   if (settings.onNewCase) {
     mail(settings.notifyEmails, `[${ref}] New support case from ${business.name}: ${c.subject}`, [
       `${business.name} opened a support case.`,
@@ -119,6 +132,7 @@ export function addReply(caseId: string, user: AuthUser, role: "business" | "sup
   const ref = caseRef(c.number);
   const business = one("SELECT name FROM businesses WHERE id = ?", c.business_id)!;
   const settings = supportSettings();
+  if (role === "business" && text) autoTriage(c.id);
   if (role === "business" && settings.onBusinessReply && text) {
     mail(settings.notifyEmails, `[${ref}] ${business.name} replied: ${c.subject}`, [
       `${user.name || user.email} at ${business.name} replied on ${ref}.`, quote(text), `Answer it here: ${superLink(c)}`,

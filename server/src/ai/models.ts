@@ -49,9 +49,9 @@ const effortLevelsOf = (caps: Caps) =>
   caps?.effort?.supported ? ["low", "medium", "high", "xhigh", "max"].filter((l) => caps.effort?.[l]?.supported) : [];
 
 /** Fresh list from the Models API on every call (the settings page loads it each visit), newest first. */
-export async function listModels(): Promise<ModelChoice[]> {
-  if (!config.ai.apiKey) throw new Error("Save an Anthropic API key first, then the list of models appears here.");
-  const client = new Anthropic({ apiKey: config.ai.apiKey });
+export async function listModels(apiKey = config.ai.apiKey): Promise<ModelChoice[]> {
+  if (!apiKey) throw new Error("Save an Anthropic API key first, then the list of models appears here.");
+  const client = new Anthropic({ apiKey });
   const out: ModelChoice[] = [];
   for await (const m of client.models.list()) {
     const caps = (m as any).capabilities as Caps;

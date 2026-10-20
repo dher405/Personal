@@ -12,6 +12,7 @@ import { setPlan } from "../lib/platformBilling.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 import { storageStatus } from "../lib/storage.js";
 import { listModels } from "../ai/models.js";
+import { issueReport, latestTriage, startTriage, supportAiAvailable } from "../ai/supportAgent.js";
 import { addReply, getCase, saveSupportSettings, sendTestNotification, serializeCase, supportSettings } from "../lib/support.js";
 
 /** Platform-wide controls. Mounted behind requireSuperAdmin. Business-level actions reuse /api/admin/:bid. */
@@ -43,15 +44,46 @@ superRouter.get("/support", h((req) => {
   );
   return {
     counts: Object.fromEntries(all("SELECT status, COUNT(*) AS n FROM support_cases GROUP BY status").map((r) => [r.status, r.n])),
-    cases: rows.map((c) => serializeCase(c)),
+    cases: rows.map((c) => {
+      const t = latestTriage(c.id);
+      return { ...serializeCase(c), triage: t ? { status: t.status, category: t.category, severity: t.severity, draftPending: t.status === "done" && t.draft_status === "pending" } : null };
+    }),
   };
 }));
 
-superRouter.get("/support/settings", h(() => supportSettings()));
+// ---------- Support assistant: triage, drafts and the issues it finds ----------
+
+superRouter.get("/support/issues", h((req) => {
+  const status = String(req.query.status ?? "open");
+  const where = status === "open" ? "WHERE i.status IN ('new','investigating')" : status === "all" ? "" : "WHERE i.status = ?";
+  return all(
+    `SELECT i.*, (SELECT COUNT(*) FROM support_issue_cases ic WHERE ic.issue_id = i.id) AS case_count,
+            (SELECT GROUP_CONCAT('SW-' || c.number || '|' || c.id) FROM support_issue_cases ic JOIN support_cases c ON c.id = ic.case_id WHERE ic.issue_id = i.id) AS cases
+       FROM support_issues i ${where} ORDER BY CASE i.status WHEN 'new' THEN 0 WHEN 'investigating' THEN 1 ELSE 2 END, case_count DESC, i.updated_at DESC`,
+    ...(where.includes("?") ? [status] : []),
+  ).map((i) => ({ ...i, cases: i.cases ? String(i.cases).split(",").map((x) => { const [ref, id] = x.split("|"); return { ref, id }; }) : [] }));
+}));
+
+superRouter.patch("/support/issues/:id", h((req) => {
+  const body = parse(z.object({ status: z.enum(["new", "investigating", "fixed", "wont_fix"]).optional(), title: z.string().min(3).max(200).optional() }), req.body);
+  if (!one("SELECT 1 FROM support_issues WHERE id = ?", req.params.id)) throw notFound();
+  if (body.status) run("UPDATE support_issues SET status = ?, updated_at = datetime('now') WHERE id = ?", body.status, req.params.id);
+  if (body.title) run("UPDATE support_issues SET title = ? WHERE id = ?", body.title, req.params.id);
+  audit(actorOf(req.user), null, "support.issue_updated", { issueId: req.params.id, ...body });
+  return one("SELECT * FROM support_issues WHERE id = ?", req.params.id);
+}));
+
+superRouter.get("/support/issues/:id/report", h((req) => {
+  if (!one("SELECT 1 FROM support_issues WHERE id = ?", req.params.id)) throw notFound();
+  return { report: issueReport(req.params.id as string) };
+}));
+
+superRouter.get("/support/settings", h(() => ({ ...supportSettings(), aiAvailable: supportAiAvailable(), aiModel: config.supportAi.model })));
 
 superRouter.put("/support/settings", h((req) => {
   const body = parse(z.object({
     notifyEmails: z.array(z.email()).max(20), onNewCase: z.boolean(), onBusinessReply: z.boolean(), onSupportReply: z.boolean(),
+    aiAutoTriage: z.boolean().default(true), aiInstructions: z.string().max(4000).default(""),
   }), req.body);
   saveSupportSettings(body);
   audit(actorOf(req.user), null, "support.settings_updated", body);
@@ -64,11 +96,51 @@ superRouter.post("/support/settings/test", h(async () => {
   return { ok: true, message: `Test email sent to ${notifyEmails.join(", ")}.` };
 }));
 
-superRouter.get("/support/:cid", h((req) => serializeCase(getCase(req.params.cid as string), true)));
+function caseForSuper(id: string) {
+  const c = getCase(id);
+  return {
+    ...serializeCase(c, true),
+    triage: latestTriage(c.id),
+    issues: all("SELECT i.id, i.number, i.title, i.kind, i.status FROM support_issue_cases ic JOIN support_issues i ON i.id = ic.issue_id WHERE ic.case_id = ?", c.id),
+    aiAvailable: supportAiAvailable(),
+  };
+}
+
+superRouter.get("/support/:cid", h((req) => caseForSuper(req.params.cid as string)));
+
+/** Ask the assistant to (re)analyse a case, optionally with an instruction ("check their email log", "shorter reply"). */
+superRouter.post("/support/:cid/triage", h((req) => {
+  const c = getCase(req.params.cid as string);
+  if (!supportAiAvailable()) throw badRequest("Add an Anthropic API key under Settings → Support assistant (or AI assistant) first");
+  const { instruction } = parse(z.object({ instruction: z.string().max(2000).optional() }), req.body ?? {});
+  startTriage(c.id, instruction?.trim() || undefined);
+  return caseForSuper(c.id);
+}));
+
+/** The super admin approves the assistant's draft (as written or edited): it's sent like any support reply. */
+superRouter.post("/support/:cid/draft/send", h((req) => {
+  const c = getCase(req.params.cid as string);
+  const t = latestTriage(c.id);
+  if (!t || t.status !== "done" || t.draft_status !== "pending") throw badRequest("There's no draft waiting to be sent");
+  const body = parse(z.object({ body: z.string().min(1).max(10_000), status: z.enum(["open", "waiting", "resolved"]).optional() }), req.body);
+  addReply(c.id, req.user!, "support", body.body, body.status);
+  run("UPDATE support_triage SET draft_status = 'sent' WHERE id = ?", t.id);
+  audit(actorOf(req.user), c.business_id, "support.draft_sent", { caseId: c.id, triageId: t.id, edited: body.body.trim() !== String(t.draft_reply).trim() });
+  return caseForSuper(c.id);
+}));
+
+superRouter.post("/support/:cid/draft/discard", h((req) => {
+  const c = getCase(req.params.cid as string);
+  run("UPDATE support_triage SET draft_status = 'discarded' WHERE case_id = ? AND draft_status = 'pending'", c.id);
+  return caseForSuper(c.id);
+}));
 
 superRouter.post("/support/:cid/messages", h((req) => {
   const body = parse(z.object({ body: z.string().max(10_000).default(""), status: z.enum(["open", "waiting", "resolved"]).optional() }), req.body);
-  return serializeCase(addReply(getCase(req.params.cid as string).id, req.user!, "support", body.body, body.status), true);
+  const c = addReply(getCase(req.params.cid as string).id, req.user!, "support", body.body, body.status);
+  // A reply written by hand replaces any draft that was waiting.
+  if (body.body.trim()) run("UPDATE support_triage SET draft_status = 'discarded' WHERE case_id = ? AND draft_status = 'pending'", c.id);
+  return caseForSuper(c.id);
 }));
 
 superRouter.get("/businesses", h((req) => {
@@ -196,9 +268,11 @@ superRouter.put("/settings", h((req) => {
 superRouter.post("/settings/test/:group", h((req) => testSettings(req.params.group as string)));
 
 /** The models the saved Anthropic key can use, fetched fresh each time, with prices for the model picker. */
-superRouter.get("/settings/ai-models", h(async () => {
+superRouter.get("/settings/ai-models", h(async (req) => {
+  // ?for=support lists what the support assistant's key can use.
+  const support = req.query.for === "support";
   try {
-    return { models: await listModels(), current: config.ai.model };
+    return { models: await listModels(support ? config.supportAi.apiKey : config.ai.apiKey), current: support ? config.supportAi.model : config.ai.model };
   } catch (err) {
     throw badRequest((err as Error).message);
   }

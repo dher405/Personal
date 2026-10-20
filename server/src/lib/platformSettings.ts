@@ -50,6 +50,14 @@ export const SETTING_GROUPS: SettingGroup[] = [
     ],
   },
   {
+    id: "support_ai", title: "Support assistant (Anthropic)", testable: true,
+    description: "Reads support cases, checks the business's setup and logs, drafts replies for you to approve, and flags bugs and process issues (Super admin → Support). It never sends anything on its own. Leave the key blank to use the AI assistant key above.",
+    fields: [
+      { name: "SUPPORT_ANTHROPIC_API_KEY", label: "API key (optional)", secret: true, placeholder: "sk-ant-… (blank = use the AI assistant key)" },
+      { name: "SUPPORT_AI_MODEL", label: "Model", placeholder: "claude-opus-5-5", modelPicker: true, help: "Listed live from Anthropic. Support cases are few, so a capable model is worth it here" },
+    ],
+  },
+  {
     id: "google", title: "Google (sign-in and Calendar)",
     description: "One OAuth client powers \"Continue with Google\" and Google Calendar sync. console.cloud.google.com → APIs & Services → Credentials → OAuth client ID (Web application). Add both redirect URIs below.",
     fields: [
@@ -162,6 +170,11 @@ export async function testSettings(group: string): Promise<{ ok: boolean; messag
         return res.ok ? { ok: true, message: `Postmark server "${json.Name}" connected` } : { ok: false, message: json.Message ?? `Postmark said ${res.status}` };
       }
       return { ok: false, message: "No Resend or Postmark key saved" };
+    }
+    if (group === "support_ai") {
+      if (!config.supportAi.apiKey) return { ok: false, message: "No API key saved here or for the AI assistant" };
+      const model = await new Anthropic({ apiKey: config.supportAi.apiKey }).models.retrieve(config.supportAi.model);
+      return { ok: true, message: `Key works; model ${model.display_name ?? model.id} is available${process.env.SUPPORT_ANTHROPIC_API_KEY || cache.get("SUPPORT_ANTHROPIC_API_KEY") ? "" : " (using the AI assistant key)"}` };
     }
     if (group === "ai") {
       if (!config.ai.apiKey) return { ok: false, message: "No API key saved" };

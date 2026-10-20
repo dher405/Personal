@@ -25,8 +25,8 @@ const perM = (n: number) => `$${n < 1 ? n.toFixed(2) : n % 1 ? n.toFixed(2) : n}
  * The AI model as a list of the models the saved key can use, fetched fresh from Anthropic each time the page opens,
  * with each model's price and a rough cost per 1,000 booking-chat replies.
  */
-function ModelPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const { data, error, loading, reload } = useApi<any>("/super/settings/ai-models");
+function ModelPicker({ value, onChange, forSupport = false }: { value: string; onChange: (v: string) => void; forSupport?: boolean }) {
+  const { data, error, loading, reload } = useApi<any>(`/super/settings/ai-models${forSupport ? "?for=support" : ""}`);
   if (error) {
     return (
       <>
@@ -118,7 +118,7 @@ function Group({ group: g, onSaved }: { group: any; onSaved: (groups: any[]) => 
             <label key={f.name} style={f.multiline || f.modelPicker ? { gridColumn: "1 / -1" } : undefined}>
               {label}
               {f.modelPicker ? (
-                <ModelPicker value={current} onChange={set} />
+                <ModelPicker value={current} onChange={set} forSupport={f.name === "SUPPORT_AI_MODEL"} />
               ) : f.options ? (
                 <select value={current} onChange={(e) => set(e.target.value)}>
                   <option value="">(default)</option>

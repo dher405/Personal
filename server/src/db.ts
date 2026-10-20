@@ -368,6 +368,43 @@ addColumn("bookings", "meeting_url", "TEXT");
 addColumn("bookings", "meeting_external_id", "TEXT");
 addColumn("bookings", "meeting_error", "TEXT");
 
+// --- Support assistant: AI triage of support cases (drafts await the super admin) and the issues it finds ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS support_triage (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES support_cases(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','done','failed')),
+  model TEXT,
+  instruction TEXT,
+  summary TEXT, category TEXT, severity TEXT, likely_cause TEXT, internal_notes TEXT,
+  draft_reply TEXT,
+  -- pending: waiting for the super admin; sent / discarded once they decide. Nothing is ever sent without them.
+  draft_status TEXT NOT NULL DEFAULT 'pending' CHECK (draft_status IN ('pending','sent','discarded','none')),
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_triage_case ON support_triage(case_id, created_at);
+
+CREATE TABLE IF NOT EXISTS support_issues (
+  id TEXT PRIMARY KEY,
+  number INTEGER NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('bug','process','docs','feature_request','setup')),
+  details TEXT NOT NULL,
+  suggested_fix TEXT,
+  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','investigating','fixed','wont_fix')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS support_issue_cases (
+  issue_id TEXT NOT NULL REFERENCES support_issues(id) ON DELETE CASCADE,
+  case_id TEXT NOT NULL REFERENCES support_cases(id) ON DELETE CASCADE,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (issue_id, case_id)
+);
+`);
+
 // When a paid plan is set to end (moving to Starter), it runs until this time (ISO, UTC), then the business moves to Starter.
 addColumn("businesses", "plan_ends_at", "TEXT");
 db.exec(`

@@ -47,6 +47,13 @@ export const config = {
       effort: v("AI_EFFORT", "low") as "low" | "medium" | "high" | "xhigh" | "max",
     };
   },
+  /** The support assistant (Super admin → Support): its own key if one is saved, else the AI assistant's. */
+  get supportAi() {
+    return {
+      apiKey: v("SUPPORT_ANTHROPIC_API_KEY") || v("ANTHROPIC_API_KEY"),
+      model: v("SUPPORT_AI_MODEL", "claude-opus-5-5"),
+    };
+  },
   get stripe() {
     return {
       secretKey: v("STRIPE_SECRET_KEY"),
