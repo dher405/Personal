@@ -10,6 +10,7 @@ const google = new Map<string, Ev>(), graph = new Map<string, Ev>();
 const personal: Ev[] = []; // the staff member's own events in Google
 const calls: string[] = [];
 let tokenGrants: string[] = [];
+let grantCalendarScope = true;
 let fake: Server;
 const fakeUrl = await new Promise<string>((resolve) => {
   fake = createServer((req, res) => {
@@ -23,7 +24,9 @@ const fakeUrl = await new Promise<string>((resolve) => {
         const form = new URLSearchParams(body);
         tokenGrants.push(form.get("grant_type")!);
         const who = url.pathname.startsWith("/google") ? "owner@gmail.com" : "owner@outlook.com";
-        return send(200, { access_token: `at-${tokenGrants.length}`, refresh_token: "rt", expires_in: 3600, id_token: jwt.sign({ email: who }, "x") });
+        // Google reports which permissions were actually granted (people can untick the calendar box).
+        const scope = url.pathname.startsWith("/google") ? (grantCalendarScope ? "openid https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email" : "openid https://www.googleapis.com/auth/userinfo.email") : undefined;
+        return send(200, { access_token: `at-${tokenGrants.length}`, refresh_token: "rt", expires_in: 3600, id_token: jwt.sign({ email: who }, "x"), scope });
       }
       const data = body ? JSON.parse(body) : {};
       if (url.pathname.startsWith("/gcal/calendars/primary/events")) {
@@ -133,11 +136,22 @@ test("connecting Google: consent URL asks for offline calendar access; tokens st
   assert.equal(r.location, `http://web.test/admin/${bid}/calendars?connected=google`);
   const conn = one("SELECT * FROM calendar_connections WHERE staff_id = ? AND provider = 'google'", alex)!;
   assert.equal(conn.account_email, "owner@gmail.com");
-  assert.ok(!conn.tokens.includes("at-") && !conn.tokens.includes("rt"), "tokens encrypted at rest");
+  // Encrypted at rest: no readable token or JSON (random ciphertext can contain short strings like "rt", so check for JSON).
+  assert.ok(!conn.tokens.includes("accessToken") && !conn.tokens.includes("refreshToken") && !conn.tokens.includes("at-"), "tokens encrypted at rest");
 
   // The same consent link without this browser's cookie is refused.
   const replay = await fetch(`${base}/api/integrations/google/callback?code=c2&state=${encodeURIComponent(r.state)}`, { redirect: "manual" });
   assert.match(replay.headers.get("location")!, /calendarError=/);
+});
+
+test("connecting Google without ticking the calendar permission is refused with what to tick", async () => {
+  grantCalendarScope = false;
+  const before = one("SELECT tokens FROM calendar_connections WHERE staff_id = ? AND provider = 'google'", alex)!.tokens;
+  const r = await connect("google", alex);
+  grantCalendarScope = true;
+  const error = new URL(r.location).searchParams.get("calendarError")!;
+  assert.match(error, /tick "See, edit, create and delete all your Google Calendar events"/);
+  assert.equal(one("SELECT tokens FROM calendar_connections WHERE staff_id = ? AND provider = 'google'", alex)!.tokens, before, "existing connection untouched");
 });
 
 test("bookings appear, move and disappear in the connected Google Calendar, with a phone reminder", async () => {

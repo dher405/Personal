@@ -26,6 +26,16 @@ const SCOPES: Record<CalendarProvider, string> = {
   microsoft: "openid email offline_access User.Read Calendars.ReadWrite",
 };
 
+const MISSING_GOOGLE_SCOPE =
+  "Google didn't give Slotwise access to the calendar. Click Connect Google Calendar again and, on Google's permission screen, tick \"See, edit, create and delete all your Google Calendar events\" before clicking Continue.";
+
+/** Turns provider errors into something an owner can act on. */
+function explainCalendarError(err: unknown) {
+  const message = (err as Error).message ?? String(err);
+  if (/insufficient authentication scopes|insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(message)) return MISSING_GOOGLE_SCOPE.replace("Click Connect", "Disconnect, then click Connect");
+  return message;
+}
+
 export interface CalendarState { staffId: string; businessId: string; userId: string; nonce: string; provider: CalendarProvider }
 
 export function calendarAuthorizeUrl(state: CalendarState) {
@@ -57,6 +67,11 @@ async function tokenRequest(p: CalendarProvider, body: Record<string, string>) {
 /** Finishes the consent screen: stores the (encrypted) tokens on the staff member. */
 export async function completeConnection(state: CalendarState, code: string) {
   const json = await tokenRequest(state.provider, { grant_type: "authorization_code", code, redirect_uri: calendarRedirectUri(state.provider), ...(state.provider === "microsoft" ? { scope: SCOPES.microsoft } : {}) });
+  // Google's consent screen lets people untick the calendar permission and still continue; without it
+  // every sync fails, so refuse the connection now and say what to tick.
+  if (state.provider === "google" && !String(json.scope ?? "").split(" ").some((s: string) => /\/auth\/calendar(\.events)?$/.test(s))) {
+    throw badRequest(MISSING_GOOGLE_SCOPE);
+  }
   const claims = json.id_token ? (jwt.decode(json.id_token) as Record<string, any>) : {};
   const email = claims?.email ?? claims?.preferred_username ?? null;
   const tokens: Tokens = { accessToken: json.access_token, refreshToken: json.refresh_token, expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000 };
@@ -164,7 +179,7 @@ async function guarded(conn: Row, fn: () => Promise<void>) {
     await fn();
     run("UPDATE calendar_connections SET last_synced_at = datetime('now'), last_error = NULL WHERE id = ?", conn.id);
   } catch (err) {
-    run("UPDATE calendar_connections SET last_error = ? WHERE id = ?", (err as Error).message.slice(0, 300), conn.id);
+    run("UPDATE calendar_connections SET last_error = ? WHERE id = ?", explainCalendarError(err).slice(0, 400), conn.id);
   }
 }
 
@@ -260,7 +275,7 @@ export async function externalBusy(staffIds: string[], from: DateTime, to: DateT
         busyCache.set(key, entry);
         run("UPDATE calendar_connections SET last_error = NULL WHERE id = ? AND last_error LIKE 'Calendar read%'", conn.id);
       } catch (err) {
-        run("UPDATE calendar_connections SET last_error = ? WHERE id = ?", (err as Error).message.slice(0, 300), conn.id);
+        run("UPDATE calendar_connections SET last_error = ? WHERE id = ?", explainCalendarError(err).slice(0, 400), conn.id);
         return;
       }
     }

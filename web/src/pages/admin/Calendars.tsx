@@ -49,7 +49,7 @@ export function Calendars() {
                     {c.last_synced_at ? ` · last sync ${DateTime.fromSQL(c.last_synced_at, { zone: "utc" }).toRelative()}` : ""}
                   </span>
                 </div>
-                {c.last_error && <div className="error small">Problem: {c.last_error}. Try <b>Sync now</b>, or disconnect and connect again.</div>}
+                {c.last_error && <div className="error small">Problem: {String(c.last_error).replace(/\.+$/, "")}. Try <b>Sync now</b>, or disconnect and connect again.</div>}
                 <div className="row">
                   <label className="inline"><input type="checkbox" checked={!!c.check_busy} onChange={(e) => patch(c.id, { check_busy: e.target.checked })} /> Block times that are busy in this calendar</label>
                   <label className="inline">Reminder
