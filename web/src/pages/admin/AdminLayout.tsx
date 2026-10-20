@@ -12,6 +12,7 @@ import { Billing } from "./Billing";
 import { Settings } from "./Settings";
 import { SmsSettings } from "./SmsSettings";
 import { EmailSettings } from "./EmailSettings";
+import { Support, SupportCase } from "./Support";
 import { Embed } from "./Embed";
 import { Calendars } from "./Calendars";
 
@@ -73,7 +74,11 @@ export function AdminLayout({ basePath, extraTabs = [], embedded = false, header
         {header}
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h1 style={{ margin: 0 }}>{biz.name}</h1>
-          <a href={`/b/${biz.slug}`} target="_blank" rel="noreferrer">View booking page ↗</a>
+          <div className="row" style={{ gap: 16 }}>
+            <a href="/guide" target="_blank" rel="noreferrer">📘 Owner guide</a>
+            <Link to={`${base}/support`}>Help & support{biz.support_waiting ? ` (${biz.support_waiting} new repl${biz.support_waiting > 1 ? "ies" : "y"})` : ""}</Link>
+            <a href={`/b/${biz.slug}`} target="_blank" rel="noreferrer">View booking page ↗</a>
+          </div>
         </div>
         {biz.suspended ? <div className="error" style={{ marginTop: 12 }}>This business is suspended by the platform and hidden from customers.</div> : null}
         <UsageWarning usage={biz.usage ?? []} billing={`${base}/billing`} />
@@ -101,6 +106,8 @@ export function AdminLayout({ basePath, extraTabs = [], embedded = false, header
           <Route path="settings" element={<Settings />} />
           <Route path="website" element={<Embed />} />
           <Route path="calendars" element={<Calendars />} />
+          <Route path="support" element={<Support />} />
+          <Route path="support/:cid" element={<SupportCase />} />
           {extraTabs.map((t) => <Route key={t.path} path={t.path} element={t.element} />)}
         </Routes>
       </div>

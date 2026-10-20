@@ -8,6 +8,7 @@ import { ManageBooking } from "./pages/ManageBooking";
 import { AdminHome, AdminLayout } from "./pages/admin/AdminLayout";
 import { SuperAdmin } from "./pages/super/SuperAdmin";
 import { MyBookings } from "./pages/MyBookings";
+import { GuidePage } from "./pages/GuidePage";
 
 function TopBar() {
   const { session, logout } = useAuth();
@@ -71,6 +72,7 @@ export function App() {
         <Route path="/b/:slug" element={<BookingPage />} />
         <Route path="/embed/:slug" element={<BookingPage embed />} />
         <Route path="/manage/:token" element={<ManageBooking />} />
+        <Route path="/guide" element={<GuidePage />} />
         <Route path="/me" element={<RequireRole roles={["customer", "admin", "superadmin"]}><MyBookings /></RequireRole>} />
         <Route path="/admin" element={<RequireRole roles={["admin", "superadmin"]}><SuperRedirect><AdminHome /></SuperRedirect></RequireRole>} />
         <Route path="/admin/:bid/*" element={<RequireRole roles={["admin", "superadmin"]}><SuperRedirect><AdminLayout /></SuperRedirect></RequireRole>} />

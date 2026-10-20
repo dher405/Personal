@@ -330,6 +330,36 @@ addColumn("bookings", "pay_in_person", "INTEGER NOT NULL DEFAULT 0");
 addColumn("bookings", "decline_reason", "TEXT");
 allowStatus("bookings", "requested");
 
+// --- Support cases between businesses and the platform ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS support_cases (
+  id TEXT PRIMARY KEY,
+  number INTEGER NOT NULL UNIQUE,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  opened_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  reply_email TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'other',
+  -- open: needs the platform's attention; waiting: answered, waiting on the business; resolved: done
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','waiting','resolved')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_support_business ON support_cases(business_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_support_status ON support_cases(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS support_messages (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES support_cases(id) ON DELETE CASCADE,
+  author_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  author_name TEXT NOT NULL,
+  author_role TEXT NOT NULL CHECK (author_role IN ('business','support')),
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_support_messages ON support_messages(case_id, created_at);
+`);
+
 // When a paid plan is set to end (moving to Starter), it runs until this time (ISO, UTC), then the business moves to Starter.
 addColumn("businesses", "plan_ends_at", "TEXT");
 db.exec(`

@@ -229,6 +229,14 @@ Locally: `stripe listen --forward-to localhost:4000/api/webhooks/stripe`. If no 
 
 **Pay-in-person requests.** On its Payments tab, a business that requires payment can tick **Let customers ask to pay in person (cash) instead**. Customers then choose "Pay in person" when booking (web, embed, app, or by asking the AI chat). The booking is created with status `requested`: the slot is held, no checkout is started, the customer gets a "request received" email (no calendar invite yet), and the business gets an email and, if texting is connected, a text, plus a banner on every admin tab. **Accept** (Bookings) makes it a confirmed booking marked "pays in person": it counts toward the plan's bookings then, and the customer gets the normal confirmation with the calendar invite. **Decline** (with an optional note) releases the slot and emails the customer. Customers can cancel their own request at any time; requests nobody answers are released at the appointment time. API: `POST /api/admin/:bid/bookings/:id/accept`, `POST …/decline`.
 
+## Owner guide and support cases
+
+**Owner guide (`/guide`).** The business owner guide is built into the site, with a contents list. Every business's Dashboard and the top of each admin page link to it. Its text is `web/src/content/owner-guide.md`, made from the guide's Claude Docs export with `python3 scripts/import-guide.py <export> --date "<Month D, YYYY>"`. Committing that file publishes the update with the next deploy.
+
+**Support cases.** Businesses open cases from **Contact support** on their Dashboard (or **Help & support** at the top of any admin page): category, subject, description, and a reply-to email. Each case gets a number (`SW-1001`, `SW-1002`, …). The super admin answers under **Super admin → Support** (filter by *Needs reply*, *Waiting on business* or *Resolved*, search by number, business, subject or email). A support reply sets the case to *Waiting on business* (or *Resolved*); a business reply reopens it.
+- Everyone is emailed through the platform email account (Settings → Email), with a link back to the case. The business gets a confirmation with its case number and each support reply. The super admin's **Notifications** box (bottom of Support) sets which addresses hear about new cases, business replies and, optionally, copies of support replies, and can send a test email. Until a list is saved, the super admin account is notified.
+- API: `GET/POST /api/admin/:bid/support`, `GET /api/admin/:bid/support/:cid`, `POST …/:cid/messages`; `GET /api/super/support`, `GET /api/super/support/:cid`, `POST …/:cid/messages`, `GET/PUT /api/super/support/settings`, `POST /api/super/support/settings/test`.
+
 ## Mobile app
 
 ```bash

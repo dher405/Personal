@@ -30,6 +30,19 @@ export function Dashboard() {
         <div className="card"><div className="muted small">Net revenue this month</div><div className="stat">{stats ? money(stats.revenueThisMonthCents, stats.currency) : "–"}</div></div>
         <div className="card"><div className="muted small">Plan</div><div className="stat">{biz.plan_details.name}</div></div>
       </div>
+      <div className="card row" style={{ justifyContent: "space-between" }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Need help?</h2>
+          <p className="small muted" style={{ margin: "4px 0 0" }}>
+            {biz.support_waiting ? <b>Support has replied to {biz.support_waiting === 1 ? "your case" : `${biz.support_waiting} of your cases`}. </b> : null}
+            The owner guide covers every screen, and always matches the latest version. For anything else, open a support case.
+          </p>
+        </div>
+        <div className="row">
+          <a className="btn" href="/guide" target="_blank" rel="noreferrer">📘 Owner guide</a>
+          <Link className="btn primary" to={`${base}/support`}>Contact support</Link>
+        </div>
+      </div>
       {checklist.some((c) => !c.done) && (
         <div className="card stack">
           <h2>Get set up</h2>

@@ -23,6 +23,7 @@ import { handleInboundSms } from "../lib/smsInbound.js";
 import { parseReminderHours } from "../lib/reminders.js";
 import { buyPacks, currentPeriod, meter, usageFor } from "../lib/usage.js";
 import { getPacks } from "../lib/plans.js";
+import { addReply, CATEGORIES, createCase, getCase, serializeCase, type Category } from "../lib/support.js";
 
 export const adminRouter = Router({ mergeParams: true });
 
@@ -60,6 +61,8 @@ function publicSettings(b: Record<string, any>) {
     sms_configured: smsConfigured(b),
     sms_ready: smsReady(b),
     requests_waiting: one("SELECT COUNT(*) AS n FROM bookings WHERE business_id = ? AND status = 'requested'", b.id)!.n,
+    // Cases support has answered that the business hasn't replied to yet.
+    support_waiting: one("SELECT COUNT(*) AS n FROM support_cases WHERE business_id = ? AND status = 'waiting'", b.id)!.n,
     usage: usageFor(b),
   };
 }
@@ -454,6 +457,32 @@ adminRouter.post("/billing/keep", h(async (req) => {
 }));
 
 adminRouter.post("/billing/portal", h(async (req) => ({ url: await openBillingPortal(business(req)) })));
+
+// ---------- Support cases (this business ↔ the platform) ----------
+
+adminRouter.get("/support", h((req) => ({
+  categories: CATEGORIES,
+  cases: all("SELECT * FROM support_cases WHERE business_id = ? ORDER BY updated_at DESC", bid(req)).map((c) => serializeCase(c)),
+})));
+
+adminRouter.post("/support", h((req) => {
+  const body = parse(z.object({
+    subject: z.string().trim().min(3).max(150), body: z.string().trim().min(5).max(10_000),
+    replyEmail: z.email(), category: z.enum(Object.keys(CATEGORIES) as [Category, ...Category[]]).default("other"),
+  }), req.body);
+  return serializeCase(createCase(business(req), req.user!, body), true);
+}));
+
+const caseOf = (req: Request) => ownedBy(getCase(req.params.cid as string), bid(req), "Case");
+
+adminRouter.get("/support/:cid", h((req) => serializeCase(caseOf(req), true)));
+
+adminRouter.post("/support/:cid/messages", h((req) => {
+  const c = caseOf(req);
+  const body = parse(z.object({ body: z.string().max(10_000).default(""), resolved: z.boolean().optional() }), req.body);
+  // The business can reply (reopening the case) or say it's sorted.
+  return serializeCase(addReply(c.id, req.user!, "business", body.body, body.resolved ? "resolved" : undefined), true);
+}));
 
 // ---------- Admin AI assistant ----------
 

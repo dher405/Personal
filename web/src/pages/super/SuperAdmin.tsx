@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { Link, NavLink, Route, Routes, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { AdminLayout } from "../admin/AdminLayout";
 import { SuperBusinessPanel } from "./SuperBusinessPanel";
 import { PlatformSettings } from "./PlatformSettings";
+import { SupportDesk } from "./SupportDesk";
 import { DateTime } from "luxon";
 import { api, money } from "../../api";
 import { useAction, useApi } from "../../hooks";
@@ -22,11 +23,16 @@ function BusinessWorkspace() {
 }
 
 export function SuperAdmin() {
+  const { data: overview, reload } = useApi<any>("/super/overview");
+  const open = overview?.openCases ?? 0;
+  // Keep the "Support (n)" count current as you move between cases and tabs.
+  const { pathname } = useLocation();
+  useEffect(() => { reload(); }, [pathname]);
   return (
     <div className="container">
       <h1>Platform admin</h1>
       <nav className="tabs">
-        {[["", "Overview"], ["businesses", "Businesses"], ["users", "Users"], ["plans", "Plans & fees"], ["payments", "Payments"], ["settings", "Settings"], ["audit", "Audit log"]].map(([p, l]) => (
+        {[["", "Overview"], ["businesses", "Businesses"], ["support", open ? `Support (${open})` : "Support"], ["users", "Users"], ["plans", "Plans & fees"], ["payments", "Payments"], ["settings", "Settings"], ["audit", "Audit log"]].map(([p, l]) => (
           <NavLink key={p} end={!p} to={p ? `/super/${p}` : "/super"}>{l}</NavLink>
         ))}
       </nav>
@@ -38,6 +44,7 @@ export function SuperAdmin() {
         <Route path="plans" element={<Plans />} />
         <Route path="payments" element={<AllPayments />} />
         <Route path="settings" element={<PlatformSettings />} />
+        <Route path="support/*" element={<SupportDesk />} />
         <Route path="audit" element={<Audit />} />
       </Routes>
     </div>
@@ -52,6 +59,7 @@ function Overview() {
       {data.storage?.persistent === false && <div className="error"><b>Data isn't being kept.</b> {data.storage.message}</div>}
       {data.storage?.persistent === true && <div className="small muted">✓ {data.storage.message}</div>}
       <div className="grid">
+        <Link to="/super/support" className="card" style={{ textDecoration: "none", color: "inherit" }}><div className="muted small">Support cases needing a reply</div><div className="stat">{data.openCases}</div></Link>
         <div className="card"><div className="muted small">Businesses</div><div className="stat">{data.businesses}</div></div>
         <div className="card"><div className="muted small">Users</div><div className="stat">{data.users}</div></div>
         <div className="card"><div className="muted small">Bookings (30d)</div><div className="stat">{data.bookings30d}</div></div>

@@ -11,6 +11,7 @@ import { describeSettings, saveSettings, testSettings } from "../lib/platformSet
 import { setPlan } from "../lib/platformBilling.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 import { storageStatus } from "../lib/storage.js";
+import { addReply, getCase, saveSupportSettings, sendTestNotification, serializeCase, supportSettings } from "../lib/support.js";
 
 /** Platform-wide controls. Mounted behind requireSuperAdmin. Business-level actions reuse /api/admin/:bid. */
 export const superRouter = Router();
@@ -25,7 +26,49 @@ superRouter.get("/overview", h(() => ({
   byPlan: all("SELECT plan, COUNT(*) AS n FROM businesses GROUP BY plan"),
   sms30d: one("SELECT COUNT(*) AS n FROM sms_messages WHERE direction = 'outbound' AND status NOT IN ('failed','skipped') AND created_at >= datetime('now','-30 days')")!.n,
   storage: storageStatus(),
+  openCases: one("SELECT COUNT(*) AS n FROM support_cases WHERE status = 'open'")!.n,
 })));
+
+// ---------- Support cases ----------
+
+superRouter.get("/support", h((req) => {
+  const status = String(req.query.status ?? "");
+  const q = `%${String(req.query.q ?? "").trim()}%`;
+  const rows = all(
+    `SELECT c.* FROM support_cases c JOIN businesses b ON b.id = c.business_id
+      WHERE (? = '' OR c.status = ?) AND (c.subject LIKE ? OR b.name LIKE ? OR c.reply_email LIKE ? OR ('SW-' || c.number) LIKE ?)
+      ORDER BY CASE c.status WHEN 'open' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, c.updated_at DESC LIMIT 300`,
+    status, status, q, q, q, q,
+  );
+  return {
+    counts: Object.fromEntries(all("SELECT status, COUNT(*) AS n FROM support_cases GROUP BY status").map((r) => [r.status, r.n])),
+    cases: rows.map((c) => serializeCase(c)),
+  };
+}));
+
+superRouter.get("/support/settings", h(() => supportSettings()));
+
+superRouter.put("/support/settings", h((req) => {
+  const body = parse(z.object({
+    notifyEmails: z.array(z.email()).max(20), onNewCase: z.boolean(), onBusinessReply: z.boolean(), onSupportReply: z.boolean(),
+  }), req.body);
+  saveSupportSettings(body);
+  audit(actorOf(req.user), null, "support.settings_updated", body);
+  return supportSettings();
+}));
+
+superRouter.post("/support/settings/test", h(async () => {
+  const { notifyEmails } = supportSettings();
+  await sendTestNotification(notifyEmails);
+  return { ok: true, message: `Test email sent to ${notifyEmails.join(", ")}.` };
+}));
+
+superRouter.get("/support/:cid", h((req) => serializeCase(getCase(req.params.cid as string), true)));
+
+superRouter.post("/support/:cid/messages", h((req) => {
+  const body = parse(z.object({ body: z.string().max(10_000).default(""), status: z.enum(["open", "waiting", "resolved"]).optional() }), req.body);
+  return serializeCase(addReply(getCase(req.params.cid as string).id, req.user!, "support", body.body, body.status), true);
+}));
 
 superRouter.get("/businesses", h((req) => {
   const q = `%${String(req.query.q ?? "")}%`;
