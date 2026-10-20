@@ -98,6 +98,10 @@ export function EmailSettings() {
           <label>From address<input type="email" required value={f.fromEmail} onChange={set("fromEmail")} placeholder="hello@yourbusiness.com" /></label>
           <label>Replies go to (optional)<input type="email" value={f.replyTo} onChange={set("replyTo")} placeholder="Same as the From address" /></label>
         </div>
+        {/* Customers answer booking emails with Reply; make sure that lands in an inbox someone reads. */}
+        {(f.replyTo || f.fromEmail) && (/^(no-?reply|do-?not-?reply|noreply)@/i.test(f.replyTo || f.fromEmail)
+          ? <div className="error small">Customers who reply to a booking email would write to <b>{f.replyTo || f.fromEmail}</b>, which looks like an address nobody reads. Put your real inbox under “Replies go to”.</div>
+          : <p className="small muted" style={{ margin: 0 }}>When customers reply to a booking email, it goes to <b>{f.replyTo || f.fromEmail}</b>.</p>)}
 
         {f.provider === "smtp" && (
           <div className="stack">
