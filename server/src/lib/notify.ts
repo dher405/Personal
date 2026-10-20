@@ -3,6 +3,7 @@ import { config } from "../config.js";
 import { all, one, type Row } from "../db.js";
 import { sendBusinessEmail, sendEmail } from "./email.js";
 import { smsReady } from "./channels.js";
+import { prepareMeeting, whereText } from "./meetings.js";
 import { addToCalendarLinks, inviteIcs } from "./ics.js";
 import { syncBookingToCalendars } from "./calendarSync.js";
 import { sendSms, templates } from "./sms.js";
@@ -41,11 +42,17 @@ const adminLabel: Record<NotificationKind, string> = {
  * Fire-and-forget so a slow SMS provider never blocks a booking request.
  */
 export function notify(kind: NotificationKind, booking: Row, by: ChangedBy = "customer") {
-  dispatchEmail(kind, booking).catch((err) => console.error("email dispatch failed", err));
-  if (by !== "staff") dispatchAdminEmail(kind, booking).catch((err) => console.error("admin email failed", err));
-  // Owners' and staff's connected Google/Outlook calendars follow every change, whoever made it.
-  if (kind !== "customer_confirmed") syncBookingToCalendars(booking.id).catch((err) => console.error("calendar sync failed", err));
-  dispatchSms(kind, booking, by).catch((err) => console.error("sms dispatch failed", err));
+  (async () => {
+    // An online appointment's meeting link is made (or moved, or removed) first, so every message carries it.
+    const change = kind === "booking_confirmed" ? "confirmed" : kind === "booking_rescheduled" ? "rescheduled" : kind === "booking_cancelled" || kind === "booking_declined" ? "cancelled" : null;
+    if (change && booking.meeting_mode === "online") await prepareMeeting(booking.id, change);
+    const fresh = one("SELECT * FROM bookings WHERE id = ?", booking.id) ?? booking;
+    dispatchEmail(kind, fresh).catch((err) => console.error("email dispatch failed", err));
+    if (by !== "staff") dispatchAdminEmail(kind, fresh).catch((err) => console.error("admin email failed", err));
+    // Owners' and staff's connected Google/Outlook calendars follow every change, whoever made it.
+    if (kind !== "customer_confirmed") syncBookingToCalendars(fresh.id).catch((err) => console.error("calendar sync failed", err));
+    dispatchSms(kind, fresh, by).catch((err) => console.error("sms dispatch failed", err));
+  })().catch((err) => console.error("notify failed", err));
 }
 
 export async function dispatchSms(kind: NotificationKind, booking: Row, by: ChangedBy) {
@@ -101,7 +108,7 @@ export async function dispatchEmail(kind: NotificationKind, booking: Row) {
     : [
         `Hi ${first},`,
         `${kind === "booking_rescheduled" ? "Your booking has moved. It's now:" : "You're booked:"}`,
-        `${service.name} with ${staff.name}\n${when}\n${business.name}${business.address ? `, ${business.address}` : ""}`,
+        `${service.name} with ${staff.name}\n${when}\n${whereText(booking, business)}`,
         `Booking code: ${booking.code}`,
         ...(booking.pay_in_person && booking.price_cents ? [`You're paying in person at your appointment: ${formatMoney(booking.price_cents, booking.currency)}.`] : []),
         `Need to reschedule or cancel? ${manage}` + (business.cancellation_hours ? ` (online changes close ${business.cancellation_hours} hours before)` : ""),

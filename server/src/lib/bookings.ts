@@ -30,6 +30,8 @@ export interface NewBooking {
   priceCentsOverride?: number;
   /** Customer asks to pay in person instead of online; the business accepts or declines the request. */
   payInPerson?: boolean;
+  /** For a service the customer can take in person or online, which they chose. */
+  meetingMode?: "in_person" | "online";
 }
 
 export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) {
@@ -54,6 +56,10 @@ export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) 
     end: b.ends_at,
     status: b.status,
     payInPerson: !!b.pay_in_person,
+    meetingMode: b.meeting_mode ?? "in_person",
+    meetingUrl: b.meeting_url ?? null,
+    meetingProvider: b.meeting_provider ?? null,
+    meetingError: b.meeting_error ?? null,
     declineReason: b.decline_reason ?? null,
     smsOptIn: !!b.sms_opt_in,
     customerConfirmedAt: b.customer_confirmed_at,
@@ -112,11 +118,12 @@ export function createBooking(input: NewBooking, actor: Actor) {
     const requested = needsPayment && !!input.payInPerson;
     if (requested && !business.cash_requests) throw badRequest(`${business.name} takes payment online when you book.`);
     const status = requested ? "requested" : needsPayment ? "pending_payment" : "confirmed";
+    const meetingMode = service.location_mode === "online" ? "online" : service.location_mode === "choice" ? input.meetingMode ?? "in_person" : "in_person";
     const id = newId("bk");
     run(
       `INSERT INTO bookings (id, code, manage_token, business_id, service_id, staff_id, customer_id, customer_name, customer_email,
-         customer_phone, starts_at, ends_at, status, price_cents, currency, notes, source, sms_opt_in, pay_in_person)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         customer_phone, starts_at, ends_at, status, price_cents, currency, notes, source, sms_opt_in, pay_in_person, meeting_mode)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, randomCode(), randomToken(), business.id, service.id, staffId, input.customerId ?? null,
       input.customer.name, input.customer.email.toLowerCase(),
       input.customer.phone ? normalizePhone(input.customer.phone) ?? input.customer.phone : null,
@@ -125,6 +132,7 @@ export function createBooking(input: NewBooking, actor: Actor) {
       // Consent to texts only counts if the business actually offers texting.
       Number(!!input.smsOptIn && !!input.customer.phone && smsReady(business)),
       Number(requested),
+      meetingMode,
     );
     audit(actor, business.id, "booking.created", { bookingId: id, start: start.toISO(), source: input.source });
     const booking = getBooking(id);

@@ -92,6 +92,12 @@ export const config = {
       },
     };
   },
+  /** Meeting providers' API addresses (overridable for tests). Each business uses its own Zoom / RingCentral app. */
+  meetingApis: {
+    zoomOauth: env.ZOOM_OAUTH_URL ?? "https://zoom.us/oauth/token",
+    zoomApi: env.ZOOM_API_URL ?? "https://api.zoom.us/v2",
+    ringcentral: env.RINGCENTRAL_SERVER_URL ?? "https://platform.ringcentral.com",
+  },
   /** Country code assumed for phone numbers typed without one (1 = US/Canada). Texts go through each business's own Twilio. */
   get smsDefaultCountryCode() {
     return v("SMS_DEFAULT_COUNTRY_CODE", "1");

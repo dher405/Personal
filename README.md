@@ -229,6 +229,20 @@ Locally: `stripe listen --forward-to localhost:4000/api/webhooks/stripe`. If no 
 
 **Pay-in-person requests.** On its Payments tab, a business that requires payment can tick **Let customers ask to pay in person (cash) instead**. Customers then choose "Pay in person" when booking (web, embed, app, or by asking the AI chat). The booking is created with status `requested`: the slot is held, no checkout is started, the customer gets a "request received" email (no calendar invite yet), and the business gets an email and, if texting is connected, a text, plus a banner on every admin tab. **Accept** (Bookings) makes it a confirmed booking marked "pays in person": it counts toward the plan's bookings then, and the customer gets the normal confirmation with the calendar invite. **Decline** (with an optional note) releases the slot and emails the customer. Customers can cancel their own request at any time; requests nobody answers are released at the appointment time. API: `POST /api/admin/:bid/bookings/:id/accept`, `POST …/decline`.
 
+## Online appointments and meeting links
+
+Each service has a **Where** setting (Services & prices): *in person*, *online*, or *customer chooses* (the booking page, app, AI chat and the admin booking form then ask). Each business picks its meeting tool on the **Online meetings** tab:
+
+| Tool | How the link is made | What the business enters |
+|---|---|---|
+| Google Meet | A Meet conference on the event in the staff member's connected Google Calendar (`conferenceDataVersion=1`, `hangoutsMeet`) | Nothing; each staff member connects Google Calendar under Calendar sync |
+| Microsoft Teams | `isOnlineMeeting` on the event in the staff member's connected Outlook calendar (work/school Microsoft 365 accounts) | Nothing; each staff member connects Outlook |
+| Zoom | `POST /users/me/meetings` with the business's Server-to-Server OAuth app; moved with `PATCH`, deleted on cancel | Account ID, Client ID, Client secret |
+| RingCentral Video | A bridge (`POST /rcvideo/v2/account/~/extension/~/bridges`, join link `discovery.web`) with the business's JWT-flow app; deleted on cancel | Client ID, Client secret, JWT credential |
+| Fixed link | The same link for every online booking | The link |
+
+The link is made before any confirmation goes out (`lib/meetings.ts`, called from `notify`), so it's in the customer's email, calendar invite (as the location), texts and manage page ("Join the online meeting"), and in the owner's calendar. If it can't be made (for example, the staff member hasn't connected their calendar), the booking still confirms, the customer is told the link will follow, and Bookings shows the reason with **Retry** and **Paste link** (which sends the customer an updated confirmation). Provider addresses can be overridden for testing with `ZOOM_OAUTH_URL`, `ZOOM_API_URL` and `RINGCENTRAL_SERVER_URL`.
+
 ## Owner guide and support cases
 
 **Owner guide (`/guide`).** The business owner guide is built into the site, with a contents list. Every business's Dashboard and the top of each admin page link to it. Its text is `web/src/content/owner-guide.md`, made from the guide's Claude Docs export with `python3 scripts/import-guide.py <export> --date "<Month D, YYYY>"`. Committing that file publishes the update with the next deploy.

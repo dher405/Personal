@@ -18,6 +18,8 @@ import { aiChatEnabled } from "./public.js";
 import { config } from "../config.js";
 import { normalizePhone, sendSms, templates, twilioAuth } from "../lib/sms.js";
 import { sendBusinessEmail } from "../lib/email.js";
+import { MEETING_LABEL, meetingsReady, prepareMeeting, testMeetings } from "../lib/meetings.js";
+import { notify } from "../lib/notify.js";
 import { channelsFor, emailReady, saveChannels, smsConfigured, smsLive, smsReady, testModeAllowed, twilioWebhookUrls, type Channels } from "../lib/channels.js";
 import { handleInboundSms } from "../lib/smsInbound.js";
 import { parseReminderHours } from "../lib/reminders.js";
@@ -60,6 +62,8 @@ function publicSettings(b: Record<string, any>) {
     email_ready: emailReady(b),
     sms_configured: smsConfigured(b),
     sms_ready: smsReady(b),
+    meeting_ready: meetingsReady(b),
+    meeting_label: MEETING_LABEL[channelsFor(b).meetings.provider],
     requests_waiting: one("SELECT COUNT(*) AS n FROM bookings WHERE business_id = ? AND status = 'requested'", b.id)!.n,
     // Cases support has answered that the business hasn't replied to yet.
     support_waiting: one("SELECT COUNT(*) AS n FROM support_cases WHERE business_id = ? AND status = 'waiting'", b.id)!.n,
@@ -103,6 +107,7 @@ const serviceSchema = z.object({
   duration_min: z.number().int().min(5).max(24 * 60), buffer_min: z.number().int().min(0).default(0),
   price_cents: z.number().int().min(0), deposit_cents: z.number().int().min(0).default(0),
   active: z.boolean().default(true), staff_ids: z.array(z.string()).optional(),
+  location_mode: z.enum(["in_person", "online", "choice"]).default("in_person"),
 });
 
 function setServiceStaff(businessId: string, serviceId: string, staffIds?: string[]) {
@@ -123,8 +128,8 @@ adminRouter.post("/services", h((req) => {
   const id = newId("svc");
   tx(() => {
     run(
-      "INSERT INTO services (id, business_id, name, description, category, duration_min, buffer_min, price_cents, deposit_cents, active) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      id, bid(req), body.name, body.description, body.category, body.duration_min, body.buffer_min, body.price_cents, body.deposit_cents, Number(body.active),
+      "INSERT INTO services (id, business_id, name, description, category, duration_min, buffer_min, price_cents, deposit_cents, active, location_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      id, bid(req), body.name, body.description, body.category, body.duration_min, body.buffer_min, body.price_cents, body.deposit_cents, Number(body.active), body.location_mode,
     );
     // Default to every staff member so a new service is immediately bookable.
     setServiceStaff(bid(req), id, body.staff_ids ?? all("SELECT id FROM staff WHERE business_id = ?", bid(req)).map((s) => s.id));
@@ -245,14 +250,39 @@ adminRouter.post("/bookings", h((req) => {
   const body = parse(z.object({
     serviceId: z.string(), staffId: z.string(), start: z.string(), name: z.string().min(1), email: z.email(),
     phone: z.string().optional(), notes: z.string().optional(), priceCents: z.number().int().min(0).optional(), force: z.boolean().optional(),
-    smsOptIn: z.boolean().optional(),
+    smsOptIn: z.boolean().optional(), meetingMode: z.enum(["in_person", "online"]).optional(),
   }), req.body);
   const booking = createBooking({
     businessId: bid(req), serviceId: body.serviceId, staffId: body.staffId, start: body.start,
     customer: { name: body.name, email: body.email, phone: body.phone }, notes: body.notes,
-    source: "admin", force: body.force, priceCentsOverride: body.priceCents, smsOptIn: body.smsOptIn,
+    source: "admin", force: body.force, priceCentsOverride: body.priceCents, smsOptIn: body.smsOptIn, meetingMode: body.meetingMode,
   }, actor(req));
   return serializeBooking(booking, { includeToken: true });
+}));
+
+/**
+ * An online booking's meeting link: "retry" makes it again with the business's meeting tool; a pasted link
+ * replaces it (marked manual, so it's never overwritten). Either way the customer is sent the link.
+ */
+adminRouter.post("/bookings/:id/meeting", h(async (req) => {
+  const b = ownedBy(getBooking(req.params.id as string), bid(req), "Booking");
+  if (b.meeting_mode !== "online") throw badRequest("This is an in-person booking");
+  const body = parse(z.object({ url: z.url().optional() }), req.body ?? {});
+  if (body.url) {
+    run("UPDATE bookings SET meeting_provider = 'manual', meeting_url = ?, meeting_external_id = NULL, meeting_error = NULL WHERE id = ?", body.url, b.id);
+  } else {
+    run("UPDATE bookings SET meeting_url = NULL, meeting_provider = NULL, meeting_error = NULL WHERE id = ? AND meeting_provider != 'manual'", b.id);
+    await prepareMeeting(b.id, "confirmed");
+  }
+  const updated = getBooking(b.id);
+  if (!updated.meeting_url) throw badRequest(updated.meeting_error ?? "No meeting link was created");
+  audit(actor(req), bid(req), "booking.meeting_link", { bookingId: b.id, provider: updated.meeting_provider });
+  // Send the customer the link: the confirmation again, with an updated calendar invite.
+  if (updated.status === "confirmed") {
+    run("UPDATE bookings SET ics_sequence = ics_sequence + 1 WHERE id = ?", b.id);
+    notify("booking_confirmed", getBooking(b.id), "staff");
+  }
+  return serializeBooking(updated);
 }));
 
 /** Pay-in-person requests: accepting makes it a confirmed booking; declining releases the time and tells the customer. */
@@ -596,6 +626,56 @@ adminRouter.post("/communications/sms/check", h(async (req) => {
     sender = ` sending from ${t.fromNumber}`;
   }
   return { ok: true, message: `Connected to Twilio account "${account.json.friendly_name}"${sender}.` };
+}));
+
+// ---------- Online meetings: the business's own meeting tool ----------
+
+function meetingSummary(b: Record<string, any>) {
+  const m = channelsFor(b).meetings;
+  return {
+    provider: m.provider, ready: meetingsReady(b), label: MEETING_LABEL[m.provider],
+    zoomAccountId: m.zoomAccountId ?? "", zoomClientId: m.zoomClientId ?? "", zoomClientSecret: mask(m.zoomClientSecret),
+    rcClientId: m.rcClientId ?? "", rcClientSecret: mask(m.rcClientSecret), rcJwt: mask(m.rcJwt),
+    customUrl: m.customUrl ?? "",
+    // Google Meet / Teams links are made in each staff member's connected calendar.
+    staff: all(
+      `SELECT s.id, s.name, (SELECT GROUP_CONCAT(provider) FROM calendar_connections c WHERE c.staff_id = s.id) AS calendars
+         FROM staff s WHERE s.business_id = ? AND s.active = 1 ORDER BY s.name`, b.id,
+    ).map((s) => ({ id: s.id, name: s.name, calendars: s.calendars ? String(s.calendars).split(",") : [] })),
+    onlineServices: all("SELECT id, name, location_mode FROM services WHERE business_id = ? AND location_mode != 'in_person' AND active = 1", b.id),
+  };
+}
+
+adminRouter.get("/meetings", h((req) => meetingSummary(business(req))));
+
+adminRouter.put("/meetings", h((req) => {
+  const body = parse(z.object({
+    provider: z.enum(["none", "google_meet", "teams", "zoom", "ringcentral", "custom"]),
+    zoomAccountId: z.string().max(100).optional(), zoomClientId: z.string().max(100).optional(), zoomClientSecret: z.string().max(200).optional(),
+    rcClientId: z.string().max(100).optional(), rcClientSecret: z.string().max(200).optional(), rcJwt: z.string().max(4000).optional(),
+    customUrl: z.url().or(z.literal("")).optional(),
+  }), req.body);
+  const b = business(req);
+  const channels = channelsFor(b);
+  const saved = channels.meetings;
+  channels.meetings = {
+    provider: body.provider,
+    zoomAccountId: body.zoomAccountId?.trim() || undefined, zoomClientId: body.zoomClientId?.trim() || undefined,
+    zoomClientSecret: keep(body.zoomClientSecret, saved.zoomClientSecret),
+    rcClientId: body.rcClientId?.trim() || undefined, rcClientSecret: keep(body.rcClientSecret, saved.rcClientSecret), rcJwt: keep(body.rcJwt, saved.rcJwt),
+    customUrl: body.customUrl || undefined,
+  };
+  saveChannels(b.id, channels);
+  audit(actor(req), b.id, "meetings.updated", { provider: body.provider });
+  return meetingSummary(business(req));
+}));
+
+adminRouter.post("/meetings/test", h(async (req) => {
+  try {
+    return { ok: true, message: await testMeetings(business(req)) };
+  } catch (err) {
+    throw badRequest((err as Error).message);
+  }
 }));
 
 // ---------- Text messages ----------

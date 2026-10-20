@@ -11,7 +11,8 @@ import { meter } from "../lib/usage.js";
 import { aiAvailable, chat } from "../ai/chat.js";
 import { customerIcs } from "../lib/ics.js";
 import { rateLimit } from "../lib/rateLimit.js";
-import { smsReady } from "../lib/channels.js";
+import { channelsFor, smsReady } from "../lib/channels.js";
+import { MEETING_LABEL } from "../lib/meetings.js";
 
 export const publicRouter = Router();
 
@@ -42,7 +43,9 @@ publicRouter.get("/businesses/:slug", h((req) => {
     // Customers may ask to pay in person instead of online (the business accepts or declines).
     cashRequests: !!b.cash_requests && !!b.require_payment && b.payment_provider !== "none",
     onlineBookingPaused: !roomFor(b, "bookings"),
-    services: all("SELECT id, name, description, category, duration_min, price_cents, deposit_cents FROM services WHERE business_id = ? AND active = 1 ORDER BY category, name", b.id),
+    services: all("SELECT id, name, description, category, duration_min, price_cents, deposit_cents, location_mode FROM services WHERE business_id = ? AND active = 1 ORDER BY category, name", b.id),
+    // Shown to customers choosing online ("Online (Zoom)").
+    meetingTool: channelsFor(b).meetings.provider === "custom" ? "video call" : MEETING_LABEL[channelsFor(b).meetings.provider],
     staff: all(
       `SELECT s.id, s.name, s.bio, GROUP_CONCAT(ss.service_id) AS service_ids FROM staff s
          LEFT JOIN staff_services ss ON ss.staff_id = s.id WHERE s.business_id = ? AND s.active = 1 GROUP BY s.id ORDER BY s.name`, b.id,
@@ -69,12 +72,13 @@ publicRouter.post("/businesses/:slug/bookings", rateLimit({ windowMs: 60_000, ma
     source: z.enum(["web", "mobile"]).default("web"),
     smsOptIn: z.boolean().optional(),
     payInPerson: z.boolean().optional(),
+    meetingMode: z.enum(["in_person", "online"]).optional(),
   }), req.body);
   if (body.staffId && !(await freeInConnectedCalendars(b.id, body.staffId, body.start, body.serviceId))) throw conflict("That time is no longer available");
   const booking = createBooking({
     businessId: b.id, serviceId: body.serviceId, staffId: body.staffId, start: body.start,
     customer: { name: body.name, email: body.email, phone: body.phone },
-    customerId: req.user?.id, notes: body.notes, source: body.source, smsOptIn: body.smsOptIn, payInPerson: body.payInPerson,
+    customerId: req.user?.id, notes: body.notes, source: body.source, smsOptIn: body.smsOptIn, payInPerson: body.payInPerson, meetingMode: body.meetingMode,
   }, req.user ? { id: req.user.id, label: req.user.email } : { label: `guest:${body.email}` });
   const paymentUrl = booking.status === "pending_payment" ? await startPayment(booking.id) : undefined;
   return { booking: serializeBooking(booking, { includeToken: true }), paymentUrl };
@@ -97,7 +101,7 @@ function bookingByToken(token: string) {
 
 publicRouter.get("/manage/:token", h((req) => {
   const b = bookingByToken(req.params.token as string);
-  const biz = one("SELECT name, slug, timezone, cancellation_hours, phone FROM businesses WHERE id = ?", b.business_id)!;
+  const biz = one("SELECT name, slug, timezone, cancellation_hours, phone, address FROM businesses WHERE id = ?", b.business_id)!;
   return { booking: serializeBooking(b, { includeToken: true }), business: biz };
 }));
 

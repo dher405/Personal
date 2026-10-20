@@ -360,6 +360,14 @@ CREATE TABLE IF NOT EXISTS support_messages (
 CREATE INDEX IF NOT EXISTS idx_support_messages ON support_messages(case_id, created_at);
 `);
 
+// --- Where appointments happen: in person, online (a meeting link), or the customer's choice ---
+addColumn("services", "location_mode", "TEXT NOT NULL DEFAULT 'in_person'");
+addColumn("bookings", "meeting_mode", "TEXT NOT NULL DEFAULT 'in_person'");
+addColumn("bookings", "meeting_provider", "TEXT");
+addColumn("bookings", "meeting_url", "TEXT");
+addColumn("bookings", "meeting_external_id", "TEXT");
+addColumn("bookings", "meeting_error", "TEXT");
+
 // When a paid plan is set to end (moving to Starter), it runs until this time (ISO, UTC), then the business moves to Starter.
 addColumn("businesses", "plan_ends_at", "TEXT");
 db.exec(`

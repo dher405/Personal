@@ -13,6 +13,7 @@ import { Settings } from "./Settings";
 import { SmsSettings } from "./SmsSettings";
 import { EmailSettings } from "./EmailSettings";
 import { Support, SupportCase } from "./Support";
+import { MeetingSettings } from "./MeetingSettings";
 import { Embed } from "./Embed";
 import { Calendars } from "./Calendars";
 
@@ -38,7 +39,7 @@ export function AdminHome() {
 
 const tabs = [
   ["", "Dashboard"], ["bookings", "Bookings"], ["services", "Services & prices"], ["staff", "Staff & hours"],
-  ["payments", "Payments"], ["email", "Email"], ["sms", "Text messages"], ["calendars", "Calendar sync"], ["ai", "AI assistant"], ["billing", "Plan & billing"], ["settings", "Settings"], ["website", "Add to website"],
+  ["payments", "Payments"], ["email", "Email"], ["sms", "Text messages"], ["calendars", "Calendar sync"], ["meetings", "Online meetings"], ["ai", "AI assistant"], ["billing", "Plan & billing"], ["settings", "Settings"], ["website", "Add to website"],
 ];
 
 /** Shown on every admin tab from 80% of an allowance, so a business is warned well before it runs out. */
@@ -106,6 +107,7 @@ export function AdminLayout({ basePath, extraTabs = [], embedded = false, header
           <Route path="settings" element={<Settings />} />
           <Route path="website" element={<Embed />} />
           <Route path="calendars" element={<Calendars />} />
+          <Route path="meetings" element={<MeetingSettings />} />
           <Route path="support" element={<Support />} />
           <Route path="support/:cid" element={<SupportCase />} />
           {extraTabs.map((t) => <Route key={t.path} path={t.path} element={t.element} />)}

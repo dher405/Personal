@@ -3,7 +3,8 @@ import { api, money, toCents } from "../../api";
 import { useAction, useApi } from "../../hooks";
 import { useBusiness } from "./AdminLayout";
 
-const blank = { name: "", description: "", category: "", duration_min: 60, buffer_min: 0, price: "", deposit: "", active: true, staff_ids: [] as string[] };
+const blank = { name: "", description: "", category: "", duration_min: 60, buffer_min: 0, price: "", deposit: "", active: true, staff_ids: [] as string[], location_mode: "in_person" };
+export const WHERE: Record<string, string> = { in_person: "📍 In person", online: "💻 Online", choice: "📍/💻 Customer chooses" };
 
 export function Services() {
   const { biz } = useBusiness();
@@ -23,6 +24,7 @@ export function Services() {
       name: form.name, description: form.description, category: form.category,
       duration_min: Number(form.duration_min), buffer_min: Number(form.buffer_min),
       price_cents: toCents(form.price), deposit_cents: toCents(form.deposit), active: form.active, staff_ids: form.staff_ids,
+      location_mode: form.location_mode,
     };
     if (form.id) await api(`/admin/${biz.id}/services/${form.id}`, { method: "PATCH", body });
     else await api(`/admin/${biz.id}/services`, { body });
@@ -38,7 +40,7 @@ export function Services() {
           <tbody>
             {services?.map((s) => (
               <tr key={s.id}>
-                <td><strong>{s.name}</strong><div className="small muted">{s.category}</div></td>
+                <td><strong>{s.name}</strong><div className="small muted">{[s.category, WHERE[s.location_mode]].filter(Boolean).join(" · ")}</div></td>
                 <td>{s.duration_min} min{s.buffer_min ? <span className="small muted"> +{s.buffer_min} buffer</span> : null}</td>
                 <td>{money(s.price_cents, biz.currency)}{s.deposit_cents ? <div className="small muted">deposit {money(s.deposit_cents, biz.currency)}</div> : null}</td>
                 <td className="small">{s.staff_ids.map((id: string) => staff?.find((x) => x.id === id)?.name).filter(Boolean).join(", ") || <span className="badge warn">none</span>}</td>
@@ -63,7 +65,20 @@ export function Services() {
               <label>Buffer after (min)<input type="number" min={0} value={form.buffer_min} onChange={(e) => setForm({ ...form, buffer_min: Number(e.target.value) })} /></label>
               <label>Price ({biz.currency})<input type="number" step="0.01" min={0} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></label>
               <label>Deposit (optional)<input type="number" step="0.01" min={0} value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} /></label>
+              <label>Where
+                <select value={form.location_mode} onChange={(e) => setForm({ ...form, location_mode: e.target.value })}>
+                  <option value="in_person">In person (at your address)</option>
+                  <option value="online">Online (a meeting link is sent)</option>
+                  <option value="choice">Customer chooses in person or online</option>
+                </select>
+              </label>
             </div>
+            {form.location_mode !== "in_person" && (
+              <p className="small muted" style={{ margin: 0 }}>
+                {biz.meeting_ready ? <>Online bookings get a {biz.meeting_label} link in their confirmation and calendar invite.</>
+                  : <>Choose your meeting tool (Google Meet, Teams, Zoom, RingCentral or your own link) under <b>Online meetings</b> so each online booking gets a link.</>}
+              </p>
+            )}
             <div><div className="muted small">Who provides it</div>
               {staff?.map((s) => (
                 <label key={s.id} className="inline">

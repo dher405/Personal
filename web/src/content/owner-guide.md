@@ -6,7 +6,7 @@
 
 Slotwise gives your business an online booking calendar. Customers pick a service, see only the times you are actually free, book, and pay. They can then confirm, reschedule or cancel on their own by web or text message. You manage everything from one admin screen on any computer or phone.
 
-Everything below is done from your admin screen. Sign in, then click **Admin** at the top of the page. The tabs across the top (Dashboard, Bookings, Services & prices, Staff & hours, Payments, Email, Text messages, Calendar sync, AI assistant, Plan & billing, Settings, Add to website) match the sections of this guide.
+Everything below is done from your admin screen. Sign in, then click **Admin** at the top of the page. The tabs across the top (Dashboard, Bookings, Services & prices, Staff & hours, Payments, Email, Text messages, Calendar sync, Online meetings, AI assistant, Plan & billing, Settings, Add to website) match the sections of this guide.
 
 To be ready for your first booking, work through this list in order. Your **Dashboard** shows the same checklist and ticks items off as you finish them.
 
@@ -56,6 +56,7 @@ To add one, open **Services & prices** and click **+ Add service**. To change on
 | Deposit (optional) | Charge only this much online when payment is required; the rest is collected in person | 20.00 |
 | Who provides it | Staff customers can book for this service | Alex Kim |
 | Bookable | Untick to hide the service without deleting it | On |
+| Where | In person at your address, online with a meeting link, or the customer chooses when booking (see Online sessions and meeting links) | Customer chooses |
 
 Tips:
 
@@ -351,6 +352,32 @@ On each connection you can:
 A subscription is read-only, and calendar apps check it only every few hours (Google can take up to a day). Use **Connect** above for real-time updates. Anyone with the address can see the bookings, so keep it private; **Make new addresses** stops old ones working.
 
 **Email alerts.** Tick **Email me when customers book, confirm, reschedule or cancel** to get an email at your Gmail, Outlook or any other address for each change customers make. Every admin of the business gets them.
+
+## Online sessions and meeting links
+
+You can hold lessons and appointments in person, online, or let each customer choose. For online ones, Slotwise creates a meeting with your video tool when the booking is confirmed, and puts the **join link** in the customer's confirmation email, their calendar invite, their texts and their booking page, and in your own calendar. If the booking is moved, the meeting moves with it; if it's cancelled, the meeting is deleted.
+
+**1. Choose where each service happens.** In **Services & prices**, click **Edit** on a service and set **Where**:
+
+- **In person**: at the address in your Settings (the default).
+- **Online**: every booking gets a meeting link.
+- **Customer chooses**: the booking page asks "Where would you like it?" with *In person* or *Online*. The same choice appears in the app, the AI chat and your own **+ New booking** form.
+
+**2. Choose your meeting tool** in **Online meetings**, then click **Save** and **Test**.
+
+| Tool | What you set up |
+| --- | --- |
+| Google Meet | Nothing to enter. Each staff member who takes online bookings connects their **Google Calendar** under Calendar sync; the Meet link is made on the booking's event in their calendar |
+| Microsoft Teams | Nothing to enter. Each staff member connects **Outlook** under Calendar sync. Teams needs a Microsoft 365 work or school account; personal Outlook.com accounts can't create Teams meetings |
+| Zoom | In the Zoom App Marketplace: **Develop → Build App → Server-to-Server OAuth App**, add the meeting and user scopes, activate it, then paste its **Account ID**, **Client ID** and **Client secret**. Meetings use a waiting room so you let each customer in. Meetings over 40 minutes need a paid Zoom plan |
+| RingCentral Video | In the RingCentral Developer Console, register a **REST API App** with **JWT auth flow** and the **Video** permission, then paste its **Client ID**, **Client secret** and a **JWT credential** from your profile's Credentials page |
+| The same link every time | Paste your personal meeting room link (any tool). Every online booking uses it, so keep a waiting room or lobby on |
+
+The **Online meetings** tab shows which staff have the right calendar connected for Google Meet or Teams, and **Test** checks your Zoom or RingCentral details.
+
+**What customers see.** After booking: "This is an online session. Your join link is in the confirmation email and calendar invite." The email shows *Online (Zoom): https://…*, the calendar invite carries the link as its location (most calendar apps show a **Join** button), and their booking page has a **💻 Join the online meeting** button.
+
+**If a link couldn't be created** (for example, the staff member hasn't connected their calendar, or the Zoom details are wrong), the booking is still confirmed and the customer is told you'll send the link. In **Bookings**, the booking shows ⚠ *No meeting link* with the reason. Fix the cause and click **Retry**, or click **Paste link** to use a link you made yourself. Either way, the customer is emailed the link with an updated calendar invite.
 
 ## The AI assistant
 

@@ -17,6 +17,7 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
   const [form, setForm] = useState({ name: session?.user.name ?? "", email: session?.user.email ?? "", phone: "" });
   const [smsOptIn, setSmsOptIn] = useState(false);
   const [payInPerson, setPayInPerson] = useState(false);
+  const [online, setOnline] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
@@ -42,7 +43,7 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
     setBusy(true); setError("");
     try {
       const res = await api(`/public/businesses/${slug}/bookings`, {
-        body: { serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email, phone: form.phone || undefined, source: "mobile", smsOptIn: smsOptIn && !!form.phone, payInPerson: !!biz.cashRequests && payInPerson },
+        body: { serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email, phone: form.phone || undefined, source: "mobile", smsOptIn: smsOptIn && !!form.phone, payInPerson: !!biz.cashRequests && payInPerson, meetingMode: service?.location_mode === "choice" ? (online ? "online" : "in_person") : undefined },
       });
       setDone(res.booking);
       if (res.paymentUrl) Linking.openURL(res.paymentUrl);
@@ -65,6 +66,7 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
               <Button title="Add to Apple / Outlook calendar" onPress={() => Linking.openURL(done.calendarLinks.ics)} />
             </>
           )}
+          {done.meetingMode === "online" && <P small>This is an online session: the join link is in your confirmation email and on the booking page.</P>}
           <Button title="Manage booking" onPress={() => Linking.openURL(done.manageUrl)} />
           <Button title="Done" onPress={nav.back} />
         </Card>
@@ -129,6 +131,13 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
               <View style={{ flex: 1 }}><P small>Text me my confirmation and reminders (reply to confirm, reschedule or cancel). Msg & data rates may apply; reply STOP to opt out.</P></View>
             </View>
           )}
+          {service.location_mode === "choice" && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <Switch value={online} onValueChange={setOnline} />
+              <View style={{ flex: 1 }}><P small>Online instead of in person (the join link comes with your confirmation)</P></View>
+            </View>
+          )}
+          {service.location_mode === "online" && <P small>This is online: your join link comes with your confirmation email.</P>}
           {biz.cashRequests && biz.requirePayment && service.price_cents > 0 && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
               <Switch value={payInPerson} onValueChange={setPayInPerson} />

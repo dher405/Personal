@@ -76,6 +76,7 @@ const listServices = tool({
       duration_minutes: s.duration_min,
       price: money(s.price_cents, ctx.business.currency),
       deposit: s.deposit_cents ? money(s.deposit_cents, ctx.business.currency) : null,
+      where: s.location_mode === "online" ? "online (meeting link sent on booking)" : s.location_mode === "choice" ? "in person or online, customer's choice (ask which)" : "in person",
       staff: all("SELECT st.id, st.name FROM staff st JOIN staff_services ss ON ss.staff_id = st.id WHERE ss.service_id = ? AND st.active = 1", s.id),
     })),
 });
@@ -123,6 +124,7 @@ const customerTools: AiTool[] = [
       customer_phone: z.string().optional(),
       sms_opt_in: z.boolean().optional().describe("True only if the customer explicitly agreed to text reminders/updates at customer_phone"),
       notes: z.string().optional(),
+      meeting_mode: z.enum(["in_person", "online"]).optional().describe("For a service the customer can take in person or online: which they chose"),
       pay_in_person: z.boolean().optional().describe("True only if the customer asked to pay in person (cash) instead of online, and the business allows it. It becomes a request the business accepts or declines"),
     }),
     run: async (input, ctx) => {
@@ -139,6 +141,7 @@ const customerTools: AiTool[] = [
         source: "ai",
         smsOptIn: input.sms_opt_in,
         payInPerson: input.pay_in_person,
+        meetingMode: input.meeting_mode,
       }, actorFor(ctx));
       const serialized = serializeBooking(booking, { includeToken: true });
       let paymentUrl: string | undefined;

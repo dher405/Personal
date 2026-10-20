@@ -44,11 +44,13 @@ export function customerEventText({ booking, business, service, staff }: Booking
     title: `${service.name} with ${business.name}`,
     description: [
       `${service.name} with ${staff.name}`,
+      booking.meeting_mode === "online" ? (booking.meeting_url ? `Join online: ${booking.meeting_url}` : "Online: the meeting link will be sent to you") : "",
       `Booking code: ${booking.code}`,
       `Reschedule or cancel: ${manageUrl(booking)}`,
       business.phone ? `Questions: ${business.phone}` : "",
     ].filter(Boolean).join("\n"),
-    location: business.address ?? business.name,
+    // Calendar apps turn a link in the location into a "Join" button.
+    location: booking.meeting_mode === "online" ? booking.meeting_url ?? "Online" : business.address ?? business.name,
   };
 }
 

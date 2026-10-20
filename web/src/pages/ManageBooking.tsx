@@ -56,6 +56,10 @@ export function ManageBooking() {
             Complete payment
           </button>
         )}
+        {b.meetingMode === "online" && ["confirmed", "completed"].includes(b.status) && (b.meetingUrl
+          ? <a className="btn primary" href={b.meetingUrl} target="_blank" rel="noreferrer">💻 Join the online meeting</a>
+          : <p className="small">💻 This is an online session. {biz.name} will send you the meeting link before it starts.</p>)}
+        {b.meetingMode !== "online" && b.status === "confirmed" && biz.address && <p className="small">📍 {biz.address}</p>}
         {b.status === "confirmed" && <AddToCalendar links={b.calendarLinks} />}
         {active && (b.customerConfirmedAt ? <span className="badge ok">You confirmed you'll be there</span> : (
           <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { await api(`/public/manage/${token}/confirm`, { method: "POST", body: {} }); reload(); })}>

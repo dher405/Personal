@@ -52,6 +52,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
   const [details, setDetails] = useState({ name: session?.user.name ?? "", email: session?.user.email ?? "", phone: "", notes: "" });
   const [smsOptIn, setSmsOptIn] = useState(false);
   const [payInPerson, setPayInPerson] = useState(false);
+  const [meetingMode, setMeetingMode] = useState<"in_person" | "online">("in_person");
   const [done, setDone] = useState<any>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const { busy, error: bookError, run } = useAction();
@@ -71,6 +72,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
         serviceId, staffId: slot!.staffId, start: slot!.start, ...details,
         phone: details.phone || undefined, notes: details.notes || undefined, smsOptIn: smsOptIn && !!details.phone,
         payInPerson: canPayInPerson && payInPerson,
+        meetingMode: service.location_mode === "choice" ? meetingMode : undefined,
       },
     });
     if (embed && window.parent !== window) window.parent.postMessage({ type: "slotwise:booked", code: res.booking.code, status: res.booking.status }, "*");
@@ -121,6 +123,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
           <p>{done.serviceName} with {done.staffName}<br />
             <strong>{DateTime.fromISO(done.start).setZone(biz.timezone).toLocaleString(DateTime.DATETIME_HUGE)}</strong></p>
           <p>Booking code: <strong>{done.code}</strong>. A confirmation goes to {done.customerEmail}.</p>
+          {done.meetingMode === "online" && <p>💻 This is an online session. Your join link is in the confirmation email and calendar invite, and on your booking page.</p>}
           <AddToCalendar links={done.calendarLinks} />
           {embed
             ? <a href={manageHref(done)} className="btn" {...newTab}>Manage or reschedule</a>
@@ -164,7 +167,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
           <h2>1. Choose a service</h2>
           {biz.services.map((s: any) => (
             <button key={s.id} className={`pick ${s.id === serviceId ? "selected" : ""}`} onClick={() => { setServiceId(s.id); setSlot(null); setStaffId(""); }}>
-              <span><strong>{s.name}</strong><br /><span className="muted small">{s.duration_min} min{s.description ? ` · ${s.description}` : ""}</span></span>
+              <span><strong>{s.name}</strong><br /><span className="muted small">{s.duration_min} min{s.location_mode === "online" ? " · 💻 Online" : s.location_mode === "choice" ? " · In person or online" : ""}{s.description ? ` · ${s.description}` : ""}</span></span>
               <strong>{s.price_cents ? money(s.price_cents, biz.currency) : "Free"}</strong>
             </button>
           ))}
@@ -208,6 +211,14 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
               </label>
             )}
             <label>Notes (optional)<textarea value={details.notes} onChange={(e) => setDetails({ ...details, notes: e.target.value })} /></label>
+            {service.location_mode === "choice" && (
+              <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+                <legend className="small" style={{ marginBottom: 6 }}><b>Where would you like it?</b></legend>
+                <label className="inline"><input type="radio" name="where" checked={meetingMode === "in_person"} onChange={() => setMeetingMode("in_person")} /> In person{biz.address ? ` at ${biz.address}` : ""}</label>
+                <label className="inline"><input type="radio" name="where" checked={meetingMode === "online"} onChange={() => setMeetingMode("online")} /> Online ({biz.meetingTool && biz.meetingTool !== "Not set up" ? biz.meetingTool : "video call"}); the join link comes with your confirmation</label>
+              </fieldset>
+            )}
+            {service.location_mode === "online" && <p className="small muted" style={{ margin: 0 }}>💻 This is online. Your join link comes with your confirmation email and calendar invite.</p>}
             {canPayInPerson && (
               <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
                 <legend className="small" style={{ marginBottom: 6 }}><b>How would you like to pay?</b></legend>

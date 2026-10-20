@@ -116,7 +116,11 @@ async function call(conn: Row, method: string, path: string, body?: unknown, hea
 
 const calPath = (conn: Row) => (conn.calendar_id === "primary" ? "" : `/calendars/${encodeURIComponent(conn.calendar_id)}`);
 
-function eventFor(conn: Row, b: Row) {
+/** This booking's Google Meet / Teams link is made on this connection's event. */
+const makesMeeting = (conn: Row, b: Row) =>
+  b.meeting_mode === "online" && ((b.meeting_provider === "google_meet" && conn.provider === "google") || (b.meeting_provider === "teams" && conn.provider === "microsoft"));
+
+function eventFor(conn: Row, b: Row, creating = false) {
   const business = one("SELECT * FROM businesses WHERE id = ?", b.business_id)!;
   const service = one("SELECT name FROM services WHERE id = ?", b.service_id)!;
   const title = `${service.name}: ${b.customer_name}`;
@@ -126,13 +130,17 @@ function eventFor(conn: Row, b: Row) {
     `Email: ${b.customer_email}`,
     b.customer_phone ? `Phone: ${b.customer_phone}` : "",
     b.notes ? `Notes: ${b.notes}` : "",
+    b.meeting_mode === "online" ? (b.meeting_url ? `Online meeting: ${b.meeting_url}` : "Online meeting (link not created yet)") : "",
     `Manage: ${config.webUrl}/admin/${business.id}/bookings`,
     "Change or cancel it in Slotwise so the customer is told; edits made here aren't sent to them.",
   ].filter(Boolean).join("\n");
-  const location = business.address ?? business.name;
+  const location = b.meeting_mode === "online" ? b.meeting_url ?? "Online" : business.address ?? business.name;
+  // A new event for a Google Meet / Teams booking asks the calendar to attach a meeting.
+  const meet = makesMeeting(conn, b) && creating;
   if (conn.provider === "google") {
     return {
       summary: title, description, location,
+      ...(meet ? { conferenceData: { createRequest: { requestId: `${b.id}-${conn.id}-${Date.now()}`, conferenceSolutionKey: { type: "hangoutsMeet" } } } } : {}),
       start: { dateTime: DateTime.fromISO(b.starts_at).toUTC().toISO(), timeZone: business.timezone },
       end: { dateTime: DateTime.fromISO(b.ends_at).toUTC().toISO(), timeZone: business.timezone },
       reminders: { useDefault: false, overrides: [{ method: "popup", minutes: conn.reminder_min }] },
@@ -144,23 +152,35 @@ function eventFor(conn: Row, b: Row) {
     subject: title, body: { contentType: "text", content: description }, location: { displayName: location },
     start: { dateTime: utc(b.starts_at), timeZone: "UTC" }, end: { dateTime: utc(b.ends_at), timeZone: "UTC" },
     isReminderOn: true, reminderMinutesBeforeStart: conn.reminder_min, showAs: "busy",
+    ...(makesMeeting(conn, b) ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : {}),
   };
+}
+
+/** Saves the join link the calendar made (Google Meet / Teams) on the booking. */
+function captureMeeting(conn: Row, b: Row, event: any) {
+  if (!makesMeeting(conn, b)) return;
+  const url = conn.provider === "google"
+    ? event.hangoutLink ?? event.conferenceData?.entryPoints?.find((e: any) => e.entryPointType === "video")?.uri
+    : event.onlineMeeting?.joinUrl;
+  if (url && url !== b.meeting_url) run("UPDATE bookings SET meeting_url = ?, meeting_external_id = ?, meeting_error = NULL WHERE id = ?", url, event.id ?? null, b.id);
 }
 
 async function upsertEvent(conn: Row, b: Row) {
   const link = one("SELECT external_id FROM calendar_events WHERE booking_id = ? AND connection_id = ?", b.id, conn.id);
-  const body = eventFor(conn, b);
   const prefix = conn.provider === "google" ? `/calendars/${encodeURIComponent(conn.calendar_id)}/events` : `/me${calPath(conn)}/events`;
+  // Google only reads or creates conference details when asked to with conferenceDataVersion=1.
+  const conf = conn.provider === "google" && makesMeeting(conn, b) ? "?conferenceDataVersion=1" : "";
   if (link) {
     const itemPath = conn.provider === "google" ? `${prefix}/${encodeURIComponent(link.external_id)}` : `/me/events/${encodeURIComponent(link.external_id)}`;
-    const res = await call(conn, "PATCH", itemPath, body);
-    if (res.ok) return;
+    const res = await call(conn, "PATCH", itemPath + conf, eventFor(conn, b));
+    if (res.ok) return captureMeeting(conn, b, res.json);
     if (res.status !== 404 && res.status !== 410) throw new Error(res.json.error?.message ?? `Calendar update failed (${res.status})`);
     // Someone deleted it in their calendar: put it back.
   }
-  const res = await call(conn, "POST", prefix, body);
+  const res = await call(conn, "POST", prefix + conf, eventFor(conn, b, true));
   if (!res.ok || !res.json.id) throw new Error(res.json.error?.message ?? `Calendar create failed (${res.status})`);
   run("INSERT OR REPLACE INTO calendar_events (booking_id, connection_id, external_id) VALUES (?,?,?)", b.id, conn.id, res.json.id);
+  captureMeeting(conn, b, res.json);
 }
 
 async function deleteEvent(conn: Row, bookingId: string) {

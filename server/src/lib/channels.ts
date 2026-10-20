@@ -33,14 +33,30 @@ export interface SmsChannel {
   fromNumber?: string;
 }
 
-export interface Channels { email: EmailChannel; sms: SmsChannel }
+/** How online appointments get their meeting link. Google Meet and Teams use the staff member's connected calendar. */
+export type MeetingProvider = "none" | "google_meet" | "teams" | "zoom" | "ringcentral" | "custom";
+export interface MeetingChannel {
+  provider: MeetingProvider;
+  /** Zoom Server-to-Server OAuth app (Zoom App Marketplace → Develop → Build app). */
+  zoomAccountId?: string;
+  zoomClientId?: string;
+  zoomClientSecret?: string;
+  /** RingCentral app using the JWT auth flow (developers.ringcentral.com → Console → Apps). */
+  rcClientId?: string;
+  rcClientSecret?: string;
+  rcJwt?: string;
+  /** The same link for every online appointment (a personal meeting room, for example). */
+  customUrl?: string;
+}
+
+export interface Channels { email: EmailChannel; sms: SmsChannel; meetings: MeetingChannel }
 
 export function channelsFor(business: Row): Channels {
   const raw = decryptJson<Partial<Channels>>(business.comms_config ?? "");
-  return { email: { provider: "none", ...raw.email }, sms: { provider: "none", ...raw.sms } };
+  return { email: { provider: "none", ...raw.email }, sms: { provider: "none", ...raw.sms }, meetings: { provider: "none", ...raw.meetings } };
 }
 
-export function saveChannels(businessId: string, channels: Channels) {
+export function saveChannels(businessId: string, channels: Omit<Channels, "meetings"> & { meetings?: MeetingChannel }) {
   run("UPDATE businesses SET comms_config = ? WHERE id = ?", encryptJson(channels), businessId);
 }
 

@@ -32,6 +32,12 @@ export function Bookings() {
     reload(); reloadBiz();
   });
 
+  // An online booking whose meeting link couldn't be made: try again with the meeting tool, or use a pasted link.
+  const meeting = (b: any, url?: string) => action.run(async () => {
+    await api(`/admin/${biz.id}/bookings/${b.id}/meeting`, { body: url ? { url } : {} });
+    reload();
+  });
+
   const setStatus = (b: any, status: string) => action.run(async () => {
     if (status === "cancelled" && !confirm("Cancel this booking? Refunds are issued separately.")) return;
     await api(`/admin/${biz.id}/bookings/${b.id}`, { method: "PATCH", body: { status } });
@@ -64,7 +70,20 @@ export function Bookings() {
                 <tr key={b.id}>
                   <td>{DateTime.fromISO(b.start).setZone(biz.timezone).toFormat("ccc d LLL, h:mm a")}<div className="small muted">{b.code} · {b.source}</div></td>
                   <td>{b.customerName}<div className="small muted">{b.customerEmail}{b.customerPhone ? ` · ${b.customerPhone}` : ""}</div></td>
-                  <td>{b.serviceName}<div className="small muted">{b.staffName}</div></td>
+                  <td>{b.serviceName}<div className="small muted">{b.staffName}</div>
+                    {b.meetingMode === "online" && (b.meetingUrl
+                      ? <div className="small"><a href={b.meetingUrl} target="_blank" rel="noreferrer">💻 Join meeting</a></div>
+                      : ["confirmed", "completed"].includes(b.status) && (
+                        <div className="small">
+                          <span style={{ color: "var(--warn)" }} title={b.meetingError ?? ""}>⚠ No meeting link{b.meetingError ? `: ${b.meetingError}` : ""}</span>
+                          <div className="row" style={{ gap: 6, marginTop: 4 }}>
+                            <button className="small" onClick={() => meeting(b)}>Retry</button>
+                            <button className="small" onClick={() => { const url = prompt("Paste the meeting link to send the customer:"); if (url) meeting(b, url); }}>Paste link</button>
+                          </div>
+                        </div>
+                      ))}
+                    {b.meetingMode === "online" && !b.meetingUrl && !["confirmed", "completed"].includes(b.status) && <div className="small muted">💻 Online</div>}
+                  </td>
                   <td>{money(b.priceCents, b.currency)}
                     {paid.map((p: any) => <div key={p.id} className="small muted">paid {money(p.amount_cents, b.currency)}{p.refunded_cents ? `, refunded ${money(p.refunded_cents, b.currency)}` : ""}</div>)}
                   </td>
@@ -169,7 +188,7 @@ function NewBooking({ onClose }: { onClose: () => void }) {
   const { data: services } = useApi<any[]>(`/admin/${biz.id}/services`);
   const [serviceId, setServiceId] = useState("");
   const [slot, setSlot] = useState<Slot | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", price: "", smsOptIn: false });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", price: "", smsOptIn: false, meetingMode: "in_person" });
   const action = useAction();
   const service = services?.find((s) => s.id === serviceId);
 
@@ -178,6 +197,7 @@ function NewBooking({ onClose }: { onClose: () => void }) {
       body: {
         serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email,
         phone: form.phone || undefined, priceCents: form.price ? toCents(form.price) : undefined, smsOptIn: form.smsOptIn && !!form.phone,
+        meetingMode: service?.location_mode === "choice" ? form.meetingMode : undefined,
       },
     });
     onClose();
@@ -194,6 +214,13 @@ function NewBooking({ onClose }: { onClose: () => void }) {
             {services?.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name} — {money(s.price_cents, biz.currency)}</option>)}
           </select>
         </label>
+        {service?.location_mode === "choice" && (
+          <label>Where
+            <select value={form.meetingMode} onChange={(e) => setForm({ ...form, meetingMode: e.target.value })}>
+              <option value="in_person">In person</option><option value="online">Online (a meeting link is sent)</option>
+            </select>
+          </label>
+        )}
         {service && <SlotPicker timezone={biz.timezone} selected={slot} onPick={setSlot} showStaff slotsPath={(day) => `/admin/${biz.id}/slots?serviceId=${serviceId}&from=${day}`} />}
         <div className="form-grid">
           <label>Customer name<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>

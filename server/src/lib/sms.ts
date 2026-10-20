@@ -92,6 +92,8 @@ export async function sendSms(opts: SendOptions): Promise<Row> {
 // ---------- Message templates ----------
 
 const when = (b: Row, zone: string) => DateTime.fromISO(b.starts_at).setZone(zone).toFormat("ccc LLL d 'at' h:mm a");
+/** " Join online: <link>" for online appointments, so texts carry the meeting link too. */
+const online = (b: Row) => (b.meeting_mode === "online" && b.meeting_url ? ` Join online: ${b.meeting_url}` : "");
 const manageLink = (b: Row) => `${config.webUrl}/manage/${b.manage_token}`;
 
 function bookingContext(b: Row) {
@@ -104,16 +106,16 @@ function bookingContext(b: Row) {
 export const templates = {
   confirmed: (b: Row) => {
     const { business, service, staff, at } = bookingContext(b);
-    return `${business.name}: You're booked for ${service.name} with ${staff.name} on ${at}. Code ${b.code}. Reply R to reschedule, X to cancel. ${manageLink(b)} Reply STOP to opt out.`;
+    return `${business.name}: You're booked for ${service.name} with ${staff.name} on ${at}.${online(b)} Code ${b.code}. Reply R to reschedule, X to cancel. ${manageLink(b)} Reply STOP to opt out.`;
   },
   reminder: (b: Row) => {
     const { business, service, staff, at } = bookingContext(b);
     const ask = b.customer_confirmed_at ? "Reply R to reschedule or X to cancel." : "Reply C to confirm, R to reschedule, X to cancel.";
-    return `Reminder from ${business.name}: ${service.name} with ${staff.name} on ${at}. ${ask}`;
+    return `Reminder from ${business.name}: ${service.name} with ${staff.name} on ${at}.${online(b)} ${ask}`;
   },
   rescheduled: (b: Row) => {
     const { business, service, at } = bookingContext(b);
-    return `${business.name}: Your ${service.name} is now ${at}. Reply C to confirm or R to change it again.`;
+    return `${business.name}: Your ${service.name} is now ${at}.${online(b)} Reply C to confirm or R to change it again.`;
   },
   requested: (b: Row) => {
     const { business, service, staff, at } = bookingContext(b);
