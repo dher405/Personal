@@ -77,6 +77,12 @@ export function AdminLayout({ basePath, extraTabs = [], embedded = false, header
         </div>
         {biz.suspended ? <div className="error" style={{ marginTop: 12 }}>This business is suspended by the platform and hidden from customers.</div> : null}
         <UsageWarning usage={biz.usage ?? []} billing={`${base}/billing`} />
+        {biz.requests_waiting > 0 && (
+          <div className="notice" style={{ marginTop: 12 }}>
+            💵 {biz.requests_waiting === 1 ? "1 customer is" : `${biz.requests_waiting} customers are`} asking to pay in person.{" "}
+            <Link to={`${base}/bookings?status=requested`}><b>Accept or decline</b></Link>
+          </div>
+        )}
         <nav className="tabs" style={{ marginTop: 16 }}>
           {tabs.map(([path, label]) => <NavLink key={path} end to={path ? `${base}/${path}` : base}>{label}</NavLink>)}
           {extraTabs.map((t) => <NavLink key={t.path} to={`${base}/${t.path}`}>{t.label}</NavLink>)}

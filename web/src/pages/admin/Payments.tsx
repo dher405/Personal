@@ -109,6 +109,15 @@ export function Payments() {
           <input type="checkbox" checked={!!biz.require_payment} onChange={(e) => action.run(async () => { await api(`/admin/${biz.id}`, { method: "PATCH", body: { require_payment: e.target.checked } }); reloadBiz(); })} />
           Require payment (or deposit) to confirm online bookings
         </label>
+        <label className="inline" style={{ opacity: biz.require_payment && provider !== "none" ? 1 : 0.55 }}>
+          <input type="checkbox" checked={!!biz.cash_requests} disabled={!biz.require_payment || provider === "none"}
+            onChange={(e) => action.run(async () => { await api(`/admin/${biz.id}`, { method: "PATCH", body: { cash_requests: e.target.checked } }); reloadBiz(); })} />
+          Let customers ask to pay in person (cash) instead
+        </label>
+        <p className="small muted" style={{ marginTop: -6 }}>
+          They pick "Pay in person" when booking. The time is held, and you get an email (and a text, if you've connected texting) to <b>Accept</b> or <b>Decline</b> it in Bookings.
+          It counts toward your plan only once you accept it. Requests you don't answer are released at the appointment time.
+        </p>
         {test && <div className={test.ok ? "notice" : "error"}>{test.message}</div>}
         <div className="row">
           <button className="primary" disabled={action.busy}>Save payment settings</button>

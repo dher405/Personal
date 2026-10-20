@@ -115,6 +115,14 @@ export const templates = {
     const { business, service, at } = bookingContext(b);
     return `${business.name}: Your ${service.name} is now ${at}. Reply C to confirm or R to change it again.`;
   },
+  requested: (b: Row) => {
+    const { business, service, staff, at } = bookingContext(b);
+    return `${business.name}: We've got your request for ${service.name} with ${staff.name} on ${at}, paying in person. The time is held for you; we'll text you when it's confirmed. ${manageLink(b)}`;
+  },
+  declined: (b: Row) => {
+    const { business, service, at } = bookingContext(b);
+    return `${business.name}: Sorry, we couldn't accept your request for ${service.name} on ${at}.${b.decline_reason ? ` ${b.decline_reason}` : ""} Book again: ${config.webUrl}/b/${business.slug}`;
+  },
   cancelled: (b: Row) => {
     const { business, service, at } = bookingContext(b);
     return `${business.name}: Your ${service.name} on ${at} is cancelled. Book again any time: ${config.webUrl}/b/${business.slug}`;
@@ -135,14 +143,14 @@ export function agendaText(business: Row, day: DateTime) {
   const rows = all(
     `SELECT b.*, s.name AS service_name, st.name AS staff_name FROM bookings b
        JOIN services s ON s.id = b.service_id JOIN staff st ON st.id = b.staff_id
-      WHERE b.business_id = ? AND b.status IN ('confirmed','pending_payment') AND b.starts_at >= ? AND b.starts_at <= ? ORDER BY b.starts_at`,
+      WHERE b.business_id = ? AND b.status IN ('confirmed','pending_payment','requested') AND b.starts_at >= ? AND b.starts_at <= ? ORDER BY b.starts_at`,
     business.id, from, to,
   );
   const label = day.hasSame(DateTime.now().setZone(business.timezone), "day") ? "Today" : day.toFormat("ccc LLL d");
   if (!rows.length) return `${label} at ${business.name}: no appointments.`;
   const lines = rows.slice(0, 12).map((b) => {
     const t = DateTime.fromISO(b.starts_at).setZone(business.timezone).toFormat("h:mm");
-    return `${t} ${b.customer_name} (${b.service_name}, ${b.staff_name})${b.customer_confirmed_at ? " ✓" : ""}`;
+    return `${t} ${b.customer_name} (${b.service_name}, ${b.staff_name})${b.status === "requested" ? " [request, not accepted yet]" : b.customer_confirmed_at ? " ✓" : ""}`;
   });
   return `${label} at ${business.name} — ${rows.length} appt${rows.length > 1 ? "s" : ""}:\n${lines.join("\n")}${rows.length > 12 ? `\n+${rows.length - 12} more` : ""}`;
 }

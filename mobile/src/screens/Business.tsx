@@ -16,6 +16,7 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
   const [slot, setSlot] = useState<Slot | null>(null);
   const [form, setForm] = useState({ name: session?.user.name ?? "", email: session?.user.email ?? "", phone: "" });
   const [smsOptIn, setSmsOptIn] = useState(false);
+  const [payInPerson, setPayInPerson] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<any>(null);
@@ -41,7 +42,7 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
     setBusy(true); setError("");
     try {
       const res = await api(`/public/businesses/${slug}/bookings`, {
-        body: { serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email, phone: form.phone || undefined, source: "mobile", smsOptIn: smsOptIn && !!form.phone },
+        body: { serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email, phone: form.phone || undefined, source: "mobile", smsOptIn: smsOptIn && !!form.phone, payInPerson: !!biz.cashRequests && payInPerson },
       });
       setDone(res.booking);
       if (res.paymentUrl) Linking.openURL(res.paymentUrl);
@@ -52,10 +53,12 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
     return (
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <Card>
-          <H>{done.status === "pending_payment" ? "Almost done — finish payment" : "You're booked!"}</H>
+          <H>{done.status === "pending_payment" ? "Almost done — finish payment" : done.status === "requested" ? "Request sent" : "You're booked!"}</H>
           <P>{done.serviceName} with {done.staffName}</P>
           <P>{fmt(done.start, "cccc d LLLL, h:mm a")}</P>
-          <P muted small>Code {done.code} · confirmation sent to {done.customerEmail}</P>
+          {done.status === "requested"
+            ? <P small>You've asked to pay in person. The time is held while {biz.name} reviews it; we'll email {done.customerEmail} when they accept or decline.</P>
+            : <P muted small>Code {done.code} · confirmation sent to {done.customerEmail}</P>}
           {done.status === "confirmed" && done.calendarLinks && (
             <>
               <Button title="Add to Google Calendar" onPress={() => Linking.openURL(done.calendarLinks.google)} />
@@ -126,7 +129,14 @@ export function BusinessScreen({ nav, slug, session }: { nav: Nav; slug: string;
               <View style={{ flex: 1 }}><P small>Text me my confirmation and reminders (reply to confirm, reschedule or cancel). Msg & data rates may apply; reply STOP to opt out.</P></View>
             </View>
           )}
-          <Button primary busy={busy} disabled={!form.name || !form.email} title={biz.requirePayment && service.price_cents ? "Continue to payment" : "Confirm booking"} onPress={book} />
+          {biz.cashRequests && biz.requirePayment && service.price_cents > 0 && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <Switch value={payInPerson} onValueChange={setPayInPerson} />
+              <View style={{ flex: 1 }}><P small>Pay in person (cash) instead. {biz.name} will accept or decline your request; the time is held meanwhile.</P></View>
+            </View>
+          )}
+          <Button primary busy={busy} disabled={!form.name || !form.email}
+            title={biz.requirePayment && service.price_cents ? (biz.cashRequests && payInPerson ? "Send request" : "Continue to payment") : "Confirm booking"} onPress={book} />
         </Card>
       )}
     </ScrollView>

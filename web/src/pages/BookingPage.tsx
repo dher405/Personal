@@ -51,6 +51,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
   const [slot, setSlot] = useState<Slot | null>(null);
   const [details, setDetails] = useState({ name: session?.user.name ?? "", email: session?.user.email ?? "", phone: "", notes: "" });
   const [smsOptIn, setSmsOptIn] = useState(false);
+  const [payInPerson, setPayInPerson] = useState(false);
   const [done, setDone] = useState<any>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const { busy, error: bookError, run } = useAction();
@@ -61,12 +62,15 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
   const service = biz.services.find((s: any) => s.id === serviceId);
   const staffForService = biz.staff.filter((s: any) => s.service_ids.includes(serviceId));
   const manageHref = (b: any) => `/manage/${b.manageToken}`;
+  const needsPayment = biz.requirePayment && service?.price_cents > 0;
+  const canPayInPerson = needsPayment && biz.cashRequests;
 
   const book = () => run(async () => {
     const res = await api(`/public/businesses/${slug}/bookings`, {
       body: {
         serviceId, staffId: slot!.staffId, start: slot!.start, ...details,
         phone: details.phone || undefined, notes: details.notes || undefined, smsOptIn: smsOptIn && !!details.phone,
+        payInPerson: canPayInPerson && payInPerson,
       },
     });
     if (embed && window.parent !== window) window.parent.postMessage({ type: "slotwise:booked", code: res.booking.code, status: res.booking.status }, "*");
@@ -86,6 +90,24 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
           <p>We're holding this time for 30 minutes. Payment opens in a new tab.</p>
           <a className="btn primary" href={pendingPayment.url} target="_blank" rel="noopener">Pay now</a>
           <a className="small" href={manageHref(b)} target="_blank" rel="noopener">View or change this booking</a>
+        </div>
+      </div>
+    );
+  }
+
+  if (done?.status === "requested") {
+    return (
+      <div className="container narrow">
+        <div className="card stack">
+          <h1>Request sent</h1>
+          <p>{done.serviceName} with {done.staffName}<br />
+            <strong>{DateTime.fromISO(done.start).setZone(biz.timezone).toLocaleString(DateTime.DATETIME_HUGE)}</strong></p>
+          <p>You've asked to pay in person. The time is held for you while {biz.name} reviews your request.
+            We'll email {done.customerEmail} as soon as they accept or decline it.</p>
+          <p className="small muted">Booking code: {done.code}</p>
+          {embed
+            ? <a href={manageHref(done)} className="btn" {...newTab}>View or cancel the request</a>
+            : <Link to={manageHref(done)} className="btn">View or cancel the request</Link>}
         </div>
       </div>
     );
@@ -186,9 +208,17 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
               </label>
             )}
             <label>Notes (optional)<textarea value={details.notes} onChange={(e) => setDetails({ ...details, notes: e.target.value })} /></label>
+            {canPayInPerson && (
+              <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+                <legend className="small" style={{ marginBottom: 6 }}><b>How would you like to pay?</b></legend>
+                <label className="inline"><input type="radio" name="pay" checked={!payInPerson} onChange={() => setPayInPerson(false)} /> Pay online now ({money(service.deposit_cents || service.price_cents, biz.currency)}); confirmed straight away</label>
+                <label className="inline"><input type="radio" name="pay" checked={payInPerson} onChange={() => setPayInPerson(true)} /> Pay in person (cash); {biz.name} will accept or decline your request</label>
+              </fieldset>
+            )}
             <p className="small muted">Free cancellation up to {biz.cancellationHours}h before.</p>
             <button className="primary" disabled={busy}>
-              {biz.requirePayment && service.price_cents > 0 ? `Continue to payment (${money(service.deposit_cents || service.price_cents, biz.currency)})` : "Confirm booking"}
+              {needsPayment && !(canPayInPerson && payInPerson) ? `Continue to payment (${money(service.deposit_cents || service.price_cents, biz.currency)})`
+                : canPayInPerson && payInPerson ? "Send request" : "Confirm booking"}
             </button>
           </form>
         )}

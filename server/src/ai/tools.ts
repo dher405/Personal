@@ -123,6 +123,7 @@ const customerTools: AiTool[] = [
       customer_phone: z.string().optional(),
       sms_opt_in: z.boolean().optional().describe("True only if the customer explicitly agreed to text reminders/updates at customer_phone"),
       notes: z.string().optional(),
+      pay_in_person: z.boolean().optional().describe("True only if the customer asked to pay in person (cash) instead of online, and the business allows it. It becomes a request the business accepts or declines"),
     }),
     run: async (input, ctx) => {
       if (!(await freeInConnectedCalendars(ctx.business.id, input.staff_id, input.start_utc, input.service_id))) {
@@ -137,6 +138,7 @@ const customerTools: AiTool[] = [
         notes: input.notes,
         source: "ai",
         smsOptIn: input.sms_opt_in,
+        payInPerson: input.pay_in_person,
       }, actorFor(ctx));
       const serialized = serializeBooking(booking, { includeToken: true });
       let paymentUrl: string | undefined;
@@ -147,7 +149,8 @@ const customerTools: AiTool[] = [
         manage_url: serialized.manageUrl,
         payment_required: !!paymentUrl,
         payment_url: paymentUrl,
-        note: paymentUrl ? "The time is held for 30 minutes until payment is completed at payment_url." : undefined,
+        note: paymentUrl ? "The time is held for 30 minutes until payment is completed at payment_url."
+          : booking.status === "requested" ? "This is a request to pay in person: the time is held, and the business will accept or decline it. The customer gets an email either way." : undefined,
       };
     },
   }),
@@ -206,7 +209,7 @@ const adminTools: AiTool[] = [
   tool({
     name: "list_bookings",
     description: "List bookings between two dates (YYYY-MM-DD, business timezone, inclusive).",
-    schema: z.object({ date_from: z.string(), date_to: z.string(), status: z.enum(["pending_payment", "confirmed", "cancelled", "completed", "no_show"]).optional() }),
+    schema: z.object({ date_from: z.string(), date_to: z.string(), status: z.enum(["pending_payment", "requested", "confirmed", "cancelled", "completed", "no_show"]).optional() }),
     run: (input, ctx) => {
       const zone = ctx.business.timezone;
       const from = DateTime.fromISO(input.date_from, { zone }).startOf("day").toUTC().toISO();

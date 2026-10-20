@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   customer_phone TEXT,
   starts_at TEXT NOT NULL,
   ends_at TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('pending_payment','confirmed','cancelled','completed','no_show')),
+  status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('pending_payment','requested','confirmed','cancelled','completed','no_show')),
   price_cents INTEGER NOT NULL,
   currency TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
@@ -169,6 +169,35 @@ CREATE TABLE IF NOT EXISTS platform_settings (
 function addColumn(table: string, column: string, definition: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+/**
+ * SQLite can't change a CHECK constraint in place, so adding a booking status rebuilds the table once
+ * (SQLite's documented procedure): same columns and rows, new constraint, indexes recreated.
+ */
+function allowStatus(table: string, status: string) {
+  const def = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as { sql: string } | undefined;
+  if (!def || def.sql.includes(`'${status}'`)) return;
+  const newSql = def.sql
+    .replace(/^CREATE TABLE\s+("?)\w+\1/i, `CREATE TABLE ${table}_rebuild`)
+    .replace("'pending_payment',", `'pending_payment','${status}',`);
+  if (newSql === def.sql || !newSql.includes(`'${status}'`)) throw new Error(`Couldn't add status ${status} to ${table}`);
+  const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(table) as { sql: string }[];
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    db.exec(newSql);
+    db.exec(`INSERT INTO ${table}_rebuild SELECT * FROM ${table}`);
+    db.exec(`DROP TABLE ${table}`);
+    db.exec(`ALTER TABLE ${table}_rebuild RENAME TO ${table}`);
+    for (const ix of indexes) db.exec(ix.sql);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
 }
 
 // --- SMS (reminders, alerts, two-way replies) ---
@@ -295,6 +324,12 @@ CREATE TABLE IF NOT EXISTS business_sms_opt_outs (
   PRIMARY KEY (business_id, phone)
 );
 `);
+// --- Pay-in-person requests: the slot is held as 'requested' until the business accepts or declines ---
+addColumn("businesses", "cash_requests", "INTEGER NOT NULL DEFAULT 0");
+addColumn("bookings", "pay_in_person", "INTEGER NOT NULL DEFAULT 0");
+addColumn("bookings", "decline_reason", "TEXT");
+allowStatus("bookings", "requested");
+
 // When a paid plan is set to end (moving to Starter), it runs until this time (ISO, UTC), then the business moves to Starter.
 addColumn("businesses", "plan_ends_at", "TEXT");
 db.exec(`

@@ -227,6 +227,8 @@ Locally: `stripe listen --forward-to localhost:4000/api/webhooks/stripe`. If no 
 
 **Businesses' own payments.** Each business enters its own Stripe, Square or PayPal keys on its **Payments** tab. The tab shows numbered steps, that business's own webhook URL, and a Test connection button. The money goes straight to the business; the platform is not involved. Payments are confirmed when the customer returns from checkout, and the webhook confirms them as a backup.
 
+**Pay-in-person requests.** On its Payments tab, a business that requires payment can tick **Let customers ask to pay in person (cash) instead**. Customers then choose "Pay in person" when booking (web, embed, app, or by asking the AI chat). The booking is created with status `requested`: the slot is held, no checkout is started, the customer gets a "request received" email (no calendar invite yet), and the business gets an email and, if texting is connected, a text, plus a banner on every admin tab. **Accept** (Bookings) makes it a confirmed booking marked "pays in person": it counts toward the plan's bookings then, and the customer gets the normal confirmation with the calendar invite. **Decline** (with an optional note) releases the slot and emails the customer. Customers can cancel their own request at any time; requests nobody answers are released at the appointment time. API: `POST /api/admin/:bid/bookings/:id/accept`, `POST …/decline`.
+
 ## Mobile app
 
 ```bash

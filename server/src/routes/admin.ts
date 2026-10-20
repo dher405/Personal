@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DateTime } from "luxon";
 import { all, audit, newId, one, run, tx } from "../db.js";
 import { actorOf, assertBusinessAccess } from "../lib/auth.js";
-import { createBooking, getBooking, cancelBooking, refundPayment, rescheduleBooking, serializeBooking } from "../lib/bookings.js";
+import { acceptRequest, createBooking, declineRequest, getBooking, cancelBooking, refundPayment, rescheduleBooking, serializeBooking } from "../lib/bookings.js";
 import { findSlotsLive } from "../lib/availability.js";
 import { decryptJson, encryptJson } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
@@ -59,6 +59,7 @@ function publicSettings(b: Record<string, any>) {
     email_ready: emailReady(b),
     sms_configured: smsConfigured(b),
     sms_ready: smsReady(b),
+    requests_waiting: one("SELECT COUNT(*) AS n FROM bookings WHERE business_id = ? AND status = 'requested'", b.id)!.n,
     usage: usageFor(b),
   };
 }
@@ -71,7 +72,7 @@ adminRouter.patch("/", h((req) => {
     currency: z.string().length(3), phone: z.string().nullable(), address: z.string().nullable(),
     slot_interval_min: z.number().int().min(5).max(240), min_notice_min: z.number().int().min(0),
     max_advance_days: z.number().int().min(1).max(730), cancellation_hours: z.number().int().min(0),
-    require_payment: z.boolean(), ai_enabled: z.boolean(), ai_instructions: z.string().max(4000),
+    require_payment: z.boolean(), cash_requests: z.boolean(), ai_enabled: z.boolean(), ai_instructions: z.string().max(4000),
     sms_enabled: z.boolean(), sms_reminder_hours: z.string().max(40), sms_admin_phone: z.string().nullable(),
     sms_admin_alerts: z.boolean(), sms_agenda_hour: z.number().int().min(0).max(23).nullable(),
     sms_staff_reminder_min: z.number().int().min(5).max(24 * 60).nullable(),
@@ -249,6 +250,18 @@ adminRouter.post("/bookings", h((req) => {
     source: "admin", force: body.force, priceCentsOverride: body.priceCents, smsOptIn: body.smsOptIn,
   }, actor(req));
   return serializeBooking(booking, { includeToken: true });
+}));
+
+/** Pay-in-person requests: accepting makes it a confirmed booking; declining releases the time and tells the customer. */
+adminRouter.post("/bookings/:id/accept", h((req) => {
+  const b = ownedBy(getBooking(req.params.id as string), bid(req), "Booking");
+  return serializeBooking(acceptRequest(b.id, actor(req)));
+}));
+
+adminRouter.post("/bookings/:id/decline", h((req) => {
+  const b = ownedBy(getBooking(req.params.id as string), bid(req), "Booking");
+  const { reason } = parse(z.object({ reason: z.string().max(300).optional() }), req.body ?? {});
+  return serializeBooking(declineRequest(b.id, reason, actor(req)));
 }));
 
 adminRouter.patch("/bookings/:id", h(async (req) => {

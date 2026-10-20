@@ -28,6 +28,8 @@ export interface NewBooking {
   /** Admins may book outside published hours (e.g. a squeeze-in). */
   force?: boolean;
   priceCentsOverride?: number;
+  /** Customer asks to pay in person instead of online; the business accepts or declines the request. */
+  payInPerson?: boolean;
 }
 
 export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) {
@@ -51,6 +53,8 @@ export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) 
     start: b.starts_at,
     end: b.ends_at,
     status: b.status,
+    payInPerson: !!b.pay_in_person,
+    declineReason: b.decline_reason ?? null,
     smsOptIn: !!b.sms_opt_in,
     customerConfirmedAt: b.customer_confirmed_at,
     priceCents: b.price_cents,
@@ -104,21 +108,28 @@ export function createBooking(input: NewBooking, actor: Actor) {
 
     const price = input.priceCentsOverride ?? service.price_cents;
     const needsPayment = business.require_payment && business.payment_provider !== "none" && price > 0 && input.source !== "admin";
+    // Paying in person instead of online makes it a request: the slot is held until the business accepts or declines.
+    const requested = needsPayment && !!input.payInPerson;
+    if (requested && !business.cash_requests) throw badRequest(`${business.name} takes payment online when you book.`);
+    const status = requested ? "requested" : needsPayment ? "pending_payment" : "confirmed";
     const id = newId("bk");
     run(
       `INSERT INTO bookings (id, code, manage_token, business_id, service_id, staff_id, customer_id, customer_name, customer_email,
-         customer_phone, starts_at, ends_at, status, price_cents, currency, notes, source, sms_opt_in)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         customer_phone, starts_at, ends_at, status, price_cents, currency, notes, source, sms_opt_in, pay_in_person)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, randomCode(), randomToken(), business.id, service.id, staffId, input.customerId ?? null,
       input.customer.name, input.customer.email.toLowerCase(),
       input.customer.phone ? normalizePhone(input.customer.phone) ?? input.customer.phone : null,
       start.toISO(), start.plus({ minutes: service.duration_min }).toISO(),
-      needsPayment ? "pending_payment" : "confirmed", price, business.currency, input.notes ?? "", input.source,
+      status, price, business.currency, input.notes ?? "", input.source,
       // Consent to texts only counts if the business actually offers texting.
       Number(!!input.smsOptIn && !!input.customer.phone && smsReady(business)),
+      Number(requested),
     );
     audit(actor, business.id, "booking.created", { bookingId: id, start: start.toISO(), source: input.source });
     const booking = getBooking(id);
+    // A request counts toward the plan only once the business accepts it.
+    if (requested) notify("booking_requested", booking, "customer");
     if (!needsPayment) notify("booking_confirmed", booking, input.source === "admin" ? "staff" : "customer");
     if (!needsPayment) recordUse(business, "bookings", id);
     return booking;
@@ -239,7 +250,7 @@ export async function cancelBooking(bookingId: string, opts: { byCustomer: boole
   const booking = getBooking(bookingId);
   if (booking.status === "cancelled") return booking;
   const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id)!;
-  if (opts.byCustomer) {
+  if (opts.byCustomer && booking.status !== "requested") {
     const hoursUntil = DateTime.fromISO(booking.starts_at).diffNow("hours").hours;
     if (hoursUntil < business.cancellation_hours) {
       throw forbidden(`Online cancellation closes ${business.cancellation_hours}h before the appointment. Please contact ${business.name}.`);
@@ -254,6 +265,34 @@ export async function cancelBooking(bookingId: string, opts: { byCustomer: boole
   }
   const updated = getBooking(bookingId);
   notify("booking_cancelled", updated, changedBy(actor));
+  return updated;
+}
+
+/** The business accepts a pay-in-person request: it becomes a normal confirmed booking, paid in person. */
+export function acceptRequest(bookingId: string, actor: Actor) {
+  return tx(() => {
+    const booking = getBooking(bookingId);
+    if (booking.status !== "requested") throw badRequest(`This booking is ${booking.status}, not a request`);
+    const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id)!;
+    if (!hasCapacity(business, "bookings")) throw new HttpError(403, "You've used all the bookings in your plan this month. Add more or upgrade under Plan & billing, then accept.");
+    run("UPDATE bookings SET status = 'confirmed' WHERE id = ?", booking.id);
+    audit(actor, booking.business_id, "booking.request_accepted", { bookingId });
+    recordUse(business, "bookings", booking.id);
+    const updated = getBooking(bookingId);
+    notify("booking_confirmed", updated, "staff");
+    return updated;
+  });
+}
+
+/** The business declines a request (or nobody answered before the time came): the slot is released. */
+export function declineRequest(bookingId: string, reason: string | undefined, actor: Actor) {
+  const booking = getBooking(bookingId);
+  if (booking.status !== "requested") throw badRequest(`This booking is ${booking.status}, not a request`);
+  // An empty reason still marks it as declined (NULL means it wasn't), so the manage page can say so.
+  run("UPDATE bookings SET status = 'cancelled', decline_reason = ? WHERE id = ?", reason?.trim() ?? "", booking.id);
+  audit(actor, booking.business_id, "booking.request_declined", { bookingId, reason: reason ?? "" });
+  const updated = getBooking(bookingId);
+  notify("booking_declined", updated, "staff");
   return updated;
 }
 
@@ -278,5 +317,8 @@ export function expireUnpaidBookings(olderThanMinutes = 30) {
     run("UPDATE payments SET status = 'failed' WHERE booking_id = ? AND status = 'pending'", b.id);
     audit({ label: "system" }, b.business_id, "booking.expired", { bookingId: b.id });
   }
-  return stale.length;
+  // Requests nobody accepted before their start time are released, and the customer is told.
+  const unanswered = all("SELECT id FROM bookings WHERE status = 'requested' AND starts_at < ?", DateTime.utc().toISO());
+  for (const b of unanswered) declineRequest(b.id, "It wasn't confirmed before the appointment time.", { label: "system" });
+  return stale.length + unanswered.length;
 }

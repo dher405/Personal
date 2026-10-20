@@ -6,7 +6,7 @@ import { useAction, useApi } from "../hooks";
 import { SlotPicker, type Slot } from "../components/SlotPicker";
 import { AddToCalendar } from "../components/AddToCalendar";
 
-const statusBadge: Record<string, string> = { confirmed: "ok", pending_payment: "warn", cancelled: "bad", completed: "", no_show: "bad" };
+const statusBadge: Record<string, string> = { confirmed: "ok", pending_payment: "warn", requested: "warn", cancelled: "bad", completed: "", no_show: "bad" };
 
 export function ManageBooking() {
   const { token } = useParams();
@@ -30,13 +30,27 @@ export function ManageBooking() {
   return (
     <div className="container narrow">
       <div className="card stack">
-        <div className="row"><h1 style={{ margin: 0 }}>{biz.name}</h1><span className={`badge ${statusBadge[b.status]}`}>{b.status.replace("_", " ")}</span></div>
+        <div className="row"><h1 style={{ margin: 0 }}>{biz.name}</h1><span className={`badge ${statusBadge[b.status]}`}>{b.status === "requested" ? "waiting for approval" : b.status.replace("_", " ")}</span></div>
         <p>{b.serviceName} with {b.staffName}<br /><strong>{when.toLocaleString(DateTime.DATETIME_HUGE)}</strong></p>
         <p className="small muted">Booking code {b.code} · {money(b.priceCents, b.currency)}</p>
         {b.payments.map((p: any) => (
           <div key={p.id} className="small">Payment {money(p.amount_cents, b.currency)} — {p.status.replace("_", " ")}{p.refunded_cents ? ` (refunded ${money(p.refunded_cents, b.currency)})` : ""}</div>
         ))}
         {action.error && <div className="error">{action.error}</div>}
+        {b.status === "requested" && (
+          <div className="notice">
+            You've asked to pay in person. The time is held for you, and {biz.name} will accept or decline your request; you'll get an email either way.
+          </div>
+        )}
+        {b.status === "requested" && (
+          <div><button className="danger" disabled={action.busy} onClick={() => confirm("Cancel your request?") && action.run(async () => { await api(`/public/manage/${token}/cancel`, { method: "POST", body: {} }); reload(); })}>
+            Cancel request
+          </button></div>
+        )}
+        {b.status === "cancelled" && b.declineReason !== null && b.payInPerson && (
+          <p>{biz.name} couldn't accept this request{b.declineReason ? `: ${b.declineReason}` : "."} <a href={`/b/${biz.slug}`}>Book another time</a></p>
+        )}
+        {b.payInPerson && b.status === "confirmed" && <p className="small">💵 You're paying in person at your appointment.</p>}
         {b.status === "pending_payment" && (
           <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { window.location.href = (await api(`/public/manage/${token}/pay`, { method: "POST" })).paymentUrl; })}>
             Complete payment

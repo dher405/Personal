@@ -32,7 +32,7 @@ export function eligibleStaff(businessId: string, serviceId: string, staffId?: s
 function busyIntervals(staffId: string, from: DateTime, to: DateTime, excludeBookingId?: string): Interval[] {
   const bookings = all(
     `SELECT b.starts_at, b.ends_at, sv.buffer_min FROM bookings b JOIN services sv ON sv.id = b.service_id
-      WHERE b.staff_id = ? AND b.status IN ('confirmed','pending_payment','completed')
+      WHERE b.staff_id = ? AND b.status IN ('confirmed','pending_payment','requested','completed')
         AND b.ends_at > ? AND b.starts_at < ? AND b.id IS NOT ?`,
     staffId, from.toUTC().toISO(), to.toUTC().toISO(), excludeBookingId ?? null,
   );

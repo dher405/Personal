@@ -4,7 +4,7 @@ import { DateTime } from "luxon";
 import { all, one } from "../db.js";
 import { findSlotsLive, freeInConnectedCalendars } from "../lib/availability.js";
 import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, serializeBooking, startPayment } from "../lib/bookings.js";
-import { conflict, forbidden, notFound } from "../lib/errors.js";
+import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { getPlan } from "../lib/plans.js";
 import { meter } from "../lib/usage.js";
@@ -39,6 +39,8 @@ publicRouter.get("/businesses/:slug", h((req) => {
     cancellationHours: b.cancellation_hours, requirePayment: !!b.require_payment && b.payment_provider !== "none",
     aiChat: aiChatEnabled(b),
     smsEnabled: smsReady(b),
+    // Customers may ask to pay in person instead of online (the business accepts or declines).
+    cashRequests: !!b.cash_requests && !!b.require_payment && b.payment_provider !== "none",
     onlineBookingPaused: !roomFor(b, "bookings"),
     services: all("SELECT id, name, description, category, duration_min, price_cents, deposit_cents FROM services WHERE business_id = ? AND active = 1 ORDER BY category, name", b.id),
     staff: all(
@@ -66,12 +68,13 @@ publicRouter.post("/businesses/:slug/bookings", rateLimit({ windowMs: 60_000, ma
     notes: z.string().max(1000).optional(),
     source: z.enum(["web", "mobile"]).default("web"),
     smsOptIn: z.boolean().optional(),
+    payInPerson: z.boolean().optional(),
   }), req.body);
   if (body.staffId && !(await freeInConnectedCalendars(b.id, body.staffId, body.start, body.serviceId))) throw conflict("That time is no longer available");
   const booking = createBooking({
     businessId: b.id, serviceId: body.serviceId, staffId: body.staffId, start: body.start,
     customer: { name: body.name, email: body.email, phone: body.phone },
-    customerId: req.user?.id, notes: body.notes, source: body.source, smsOptIn: body.smsOptIn,
+    customerId: req.user?.id, notes: body.notes, source: body.source, smsOptIn: body.smsOptIn, payInPerson: body.payInPerson,
   }, req.user ? { id: req.user.id, label: req.user.email } : { label: `guest:${body.email}` });
   const paymentUrl = booking.status === "pending_payment" ? await startPayment(booking.id) : undefined;
   return { booking: serializeBooking(booking, { includeToken: true }), paymentUrl };
@@ -130,5 +133,6 @@ publicRouter.get("/manage/:token/calendar.ics", h((req, res) => {
 
 publicRouter.post("/manage/:token/pay", h(async (req) => {
   const b = bookingByToken(req.params.token as string);
+  if (b.status !== "pending_payment") throw badRequest(b.status === "requested" ? "This is a request to pay in person; there's nothing to pay online." : "Nothing to pay");
   return { paymentUrl: await startPayment(b.id) };
 }));

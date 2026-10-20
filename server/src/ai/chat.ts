@@ -52,6 +52,9 @@ function systemPrompt(kind: "customer" | "admin", business: Row) {
     (smsReady(business) ? `- If they give a phone number, ask whether they'd like text reminders and only set sms_opt_in if they say yes.\n` : "") +
     `- To change an existing booking you need the booking code and the email used to book.\n` +
     `- If payment is required, share the payment link and explain the time is held for 30 minutes.\n` +
+    (business.cash_requests && business.require_payment && business.payment_provider !== "none"
+      ? `- If they'd rather pay in person (cash), you can set pay_in_person: it becomes a request that ${business.name} accepts or declines, and the time is held meanwhile. Say so clearly; it isn't confirmed until they accept.\n`
+      : "") +
     `- Stay on the topic of this business's appointments; politely decline unrelated requests.\n` +
     (business.ai_instructions ? `\nInstructions from the business owner:\n${business.ai_instructions}` : "");
 }

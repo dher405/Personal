@@ -1,21 +1,36 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DateTime } from "luxon";
 import { api, money, toCents } from "../../api";
 import { useAction, useApi } from "../../hooks";
 import { SlotPicker, type Slot } from "../../components/SlotPicker";
 import { useBusiness } from "./AdminLayout";
 
-const badge: Record<string, string> = { confirmed: "ok", pending_payment: "warn", cancelled: "bad", no_show: "bad", completed: "" };
+const badge: Record<string, string> = { confirmed: "ok", pending_payment: "warn", requested: "warn", cancelled: "bad", no_show: "bad", completed: "" };
 
 export function Bookings() {
-  const { biz } = useBusiness();
+  const { biz, reloadBiz } = useBusiness();
   const today = DateTime.now().setZone(biz.timezone);
-  const [range, setRange] = useState({ from: today.toISODate()!, to: today.plus({ days: 14 }).toISODate()!, status: "", q: "" });
+  // "?status=requested" (from the alert email and the banner) shows every waiting request, however far ahead.
+  const [params] = useSearchParams();
+  const onlyRequests = params.get("status") === "requested";
+  const [range, setRange] = useState({ from: today.toISODate()!, to: today.plus({ days: onlyRequests ? 365 : 14 }).toISODate()!, status: onlyRequests ? "requested" : "", q: "" });
   const qs = new URLSearchParams(Object.entries(range).filter(([, v]) => v)).toString();
   const { data: bookings, reload } = useApi<any[]>(`/admin/${biz.id}/bookings?${qs}`);
   const [editing, setEditing] = useState<any>(null);
   const [creating, setCreating] = useState(false);
   const action = useAction();
+
+  const accept = (b: any) => action.run(async () => {
+    await api(`/admin/${biz.id}/bookings/${b.id}/accept`, { method: "POST" });
+    reload(); reloadBiz(); // updates the "asking to pay in person" banner
+  });
+  const decline = (b: any) => action.run(async () => {
+    const reason = prompt(`Decline ${b.customerName}'s request? The time is released and they're emailed. Add a note for them (optional):`, "");
+    if (reason === null) return;
+    await api(`/admin/${biz.id}/bookings/${b.id}/decline`, { body: { reason: reason || undefined } });
+    reload(); reloadBiz();
+  });
 
   const setStatus = (b: any, status: string) => action.run(async () => {
     if (status === "cancelled" && !confirm("Cancel this booking? Refunds are issued separately.")) return;
@@ -31,7 +46,7 @@ export function Bookings() {
         <label>Status
           <select value={range.status} onChange={(e) => setRange({ ...range, status: e.target.value })}>
             <option value="">All</option>
-            {["confirmed", "pending_payment", "completed", "cancelled", "no_show"].map((s) => <option key={s}>{s}</option>)}
+            {["requested", "confirmed", "pending_payment", "completed", "cancelled", "no_show"].map((s) => <option key={s}>{s}</option>)}
           </select>
         </label>
         <label>Search<input placeholder="Name, email, code" value={range.q} onChange={(e) => setRange({ ...range, q: e.target.value })} /></label>
@@ -54,19 +69,24 @@ export function Bookings() {
                     {paid.map((p: any) => <div key={p.id} className="small muted">paid {money(p.amount_cents, b.currency)}{p.refunded_cents ? `, refunded ${money(p.refunded_cents, b.currency)}` : ""}</div>)}
                   </td>
                   <td>
-                    <span className={`badge ${badge[b.status]}`}>{b.status.replace("_", " ")}</span>
+                    <span className={`badge ${badge[b.status]}`}>{b.status === "requested" ? "request" : b.status.replace("_", " ")}</span>
+                    {b.payInPerson && <div className="small">💵 pays in person</div>}
                     {b.customerConfirmedAt && b.status === "confirmed" && <div className="small" title="Customer confirmed attendance">✓ customer confirmed</div>}
                     {b.smsOptIn && <div className="small muted">📱 texts on</div>}
                   </td>
                   <td>
                     <div className="row">
+                      {b.status === "requested" && <>
+                        <button className="primary" onClick={() => accept(b)}>Accept</button>
+                        <button className="danger" onClick={() => decline(b)}>Decline</button>
+                      </>}
                       <button onClick={() => setEditing(b)}>Edit / move</button>
                       {b.status === "confirmed" && b.smsOptIn && biz.sms_ready ? (
                         <button onClick={() => action.run(async () => { await api(`/admin/${biz.id}/bookings/${b.id}/sms-reminder`, { method: "POST" }); reload(); })}>Text reminder</button>
                       ) : null}
                       {b.status === "confirmed" && <button onClick={() => setStatus(b, "completed")}>Done</button>}
                       {b.status === "confirmed" && <button onClick={() => setStatus(b, "no_show")}>No-show</button>}
-                      {b.status !== "cancelled" && <button className="danger" onClick={() => setStatus(b, "cancelled")}>Cancel</button>}
+                      {!["cancelled", "requested"].includes(b.status) && <button className="danger" onClick={() => setStatus(b, "cancelled")}>Cancel</button>}
                     </div>
                   </td>
                 </tr>
