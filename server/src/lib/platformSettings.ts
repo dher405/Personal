@@ -89,7 +89,27 @@ export const SETTING_GROUPS: SettingGroup[] = [
     ],
     urls: (api) => [{ label: "Return URL", url: `${api}/api/auth/oauth/apple/callback` }],
   },
+  {
+    id: "legal", title: "Legal pages (Terms & Privacy)",
+    description: "Fills in the details on the public Terms of Service (/terms) and Privacy Policy (/privacy) pages. They're a starting template written around how Slotwise actually works: have a lawyer review them before you rely on them.",
+    fields: [
+      { name: "LEGAL_COMPANY_NAME", label: "Legal name of your business", placeholder: "Slotwise LLC", help: "The company or person who runs Slotwise" },
+      { name: "LEGAL_CONTACT_EMAIL", label: "Contact email for legal and privacy questions", placeholder: "privacy@bookwithslotwise.com" },
+      { name: "LEGAL_ADDRESS", label: "Mailing address", multiline: true, placeholder: "123 Main St, Springfield, IL 62701, USA" },
+      { name: "LEGAL_GOVERNING_LAW", label: "Governing law (state / country)", placeholder: "the State of Illinois, USA" },
+      { name: "LEGAL_EFFECTIVE_DATE", label: "Effective date", placeholder: "October 20, 2026", help: "Change this when you update the terms" },
+    ],
+  },
 ];
+
+/** The details shown on /terms and /privacy (blank fields fall back to sensible placeholders on the page). */
+export function legalInfo() {
+  const get = (name: string) => cache.get(name) || process.env[name] || "";
+  return {
+    companyName: get("LEGAL_COMPANY_NAME"), contactEmail: get("LEGAL_CONTACT_EMAIL"), address: get("LEGAL_ADDRESS"),
+    governingLaw: get("LEGAL_GOVERNING_LAW"), effectiveDate: get("LEGAL_EFFECTIVE_DATE"),
+  };
+}
 
 const FIELDS = new Map(SETTING_GROUPS.flatMap((g) => g.fields.map((f) => [f.name, f] as const)));
 const PREFIX = "cfg:";

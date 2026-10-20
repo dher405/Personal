@@ -5,7 +5,7 @@ import { config } from "../config.js";
 import { findSlots, isSlotAvailable } from "./availability.js";
 import { randomCode, randomToken } from "./crypto.js";
 import { badRequest, conflict, forbidden, notFound } from "./errors.js";
-import { changedBy, notify } from "./notify.js";
+import { changedBy, notify, notifyQuietly } from "./notify.js";
 import { normalizePhone } from "./sms.js";
 import { smsReady } from "./channels.js";
 import { addToCalendarLinks } from "./ics.js";
@@ -32,6 +32,8 @@ export interface NewBooking {
   payInPerson?: boolean;
   /** For a service the customer can take in person or online, which they chose. */
   meetingMode?: "in_person" | "online";
+  /** One lesson of a repeating series (lib/series.ts): sent one summary instead of a confirmation per lesson. */
+  series?: { id: string; later: boolean };
 }
 
 export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) {
@@ -57,6 +59,7 @@ export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) 
     status: b.status,
     payInPerson: !!b.pay_in_person,
     meetingMode: b.meeting_mode ?? "in_person",
+    series: b.series_id ? seriesSummary(b.series_id) : null,
     meetingUrl: b.meeting_url ?? null,
     meetingProvider: b.meeting_provider ?? null,
     meetingError: b.meeting_error ?? null,
@@ -75,6 +78,13 @@ export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) 
   };
 }
 
+function seriesSummary(id: string) {
+  const s = one("SELECT id, interval_weeks, last_start, status, weeks FROM booking_series WHERE id = ?", id);
+  if (!s) return null;
+  const upcoming = one<{ n: number }>("SELECT COUNT(*) AS n FROM bookings WHERE series_id = ? AND status = 'confirmed' AND starts_at > ?", id, DateTime.utc().toISO())!.n;
+  return { id: s.id, intervalWeeks: s.interval_weeks, endsAt: s.last_start, status: s.status, weeks: s.weeks, upcoming };
+}
+
 export function getBooking(id: string) {
   const b = one("SELECT * FROM bookings WHERE id = ?", id);
   if (!b) throw notFound("Booking not found");
@@ -90,7 +100,8 @@ export function createBooking(input: NewBooking, actor: Actor) {
   const start = DateTime.fromISO(input.start, { zone: "utc" });
   if (!start.isValid) throw badRequest("Invalid start time");
   // Usage-based plans: every booking counts toward the month's allowance; when it's used up, new ones pause.
-  if (!hasCapacity(business, "bookings")) {
+  // A series' later weeks count in their own month, so only the first lesson is checked against this month's allowance.
+  if (!input.series?.later && !hasCapacity(business, "bookings")) {
     throw new HttpError(403, input.source === "admin"
       ? "You've used all the bookings in your plan this month. Add more or upgrade under Plan & billing to keep booking."
       : `${business.name} isn't taking online bookings right now.${business.phone ? ` Please call ${business.phone}.` : " Please contact them directly."}`);
@@ -100,7 +111,7 @@ export function createBooking(input: NewBooking, actor: Actor) {
     let staffId = input.staffId;
     if (!input.force) {
       if (staffId) {
-        if (!isSlotAvailable(business.id, service.id, staffId, start.toISO()!)) throw conflict("That time is no longer available");
+        if (!isSlotAvailable(business.id, service.id, staffId, start.toISO()!, undefined, !!input.series?.later)) throw conflict("That time is no longer available");
       } else {
         const day = start.setZone(business.timezone).toISODate()!;
         const match = findSlots({ businessId: business.id, serviceId: service.id, from: day, to: day })
@@ -116,14 +127,15 @@ export function createBooking(input: NewBooking, actor: Actor) {
     const needsPayment = business.require_payment && business.payment_provider !== "none" && price > 0 && input.source !== "admin";
     // Paying in person instead of online makes it a request: the slot is held until the business accepts or declines.
     const requested = needsPayment && !!input.payInPerson;
+    if (input.series && (needsPayment || requested)) throw badRequest("Repeating bookings aren't available when online payment is required");
     if (requested && !business.cash_requests) throw badRequest(`${business.name} takes payment online when you book.`);
     const status = requested ? "requested" : needsPayment ? "pending_payment" : "confirmed";
     const meetingMode = service.location_mode === "online" ? "online" : service.location_mode === "choice" ? input.meetingMode ?? "in_person" : "in_person";
     const id = newId("bk");
     run(
       `INSERT INTO bookings (id, code, manage_token, business_id, service_id, staff_id, customer_id, customer_name, customer_email,
-         customer_phone, starts_at, ends_at, status, price_cents, currency, notes, source, sms_opt_in, pay_in_person, meeting_mode)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         customer_phone, starts_at, ends_at, status, price_cents, currency, notes, source, sms_opt_in, pay_in_person, meeting_mode, series_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, randomCode(), randomToken(), business.id, service.id, staffId, input.customerId ?? null,
       input.customer.name, input.customer.email.toLowerCase(),
       input.customer.phone ? normalizePhone(input.customer.phone) ?? input.customer.phone : null,
@@ -133,10 +145,17 @@ export function createBooking(input: NewBooking, actor: Actor) {
       Number(!!input.smsOptIn && !!input.customer.phone && smsReady(business)),
       Number(requested),
       meetingMode,
+      input.series?.id ?? null,
     );
     audit(actor, business.id, "booking.created", { bookingId: id, start: start.toISO(), source: input.source });
     const booking = getBooking(id);
     // A request counts toward the plan only once the business accepts it.
+    if (input.series) {
+      // The series sends one summary; each lesson still gets its meeting link and goes into connected calendars.
+      notifyQuietly(booking);
+      recordUse(business, "bookings", id, start);
+      return booking;
+    }
     if (requested) notify("booking_requested", booking, "customer");
     if (!needsPayment) notify("booking_confirmed", booking, input.source === "admin" ? "staff" : "customer");
     if (!needsPayment) recordUse(business, "bookings", id);
@@ -233,7 +252,7 @@ export function rescheduleBooking(bookingId: string, newStart: string, opts: { s
     const start = DateTime.fromISO(newStart, { zone: "utc" });
     if (!start.isValid) throw badRequest("Invalid start time");
     const staffId = opts.staffId ?? booking.staff_id;
-    if (!opts.force && !isSlotAvailable(booking.business_id, booking.service_id, staffId, start.toISO()!, booking.id)) {
+    if (!opts.force && !isSlotAvailable(booking.business_id, booking.service_id, staffId, start.toISO()!, booking.id, !!booking.series_id)) {
       throw conflict("That time is not available");
     }
     run(
@@ -254,7 +273,7 @@ export function rescheduleBooking(bookingId: string, newStart: string, opts: { s
  * refunds anything they paid. Admin cancellations never auto-refund — the admin
  * decides separately from the bookings screen.
  */
-export async function cancelBooking(bookingId: string, opts: { byCustomer: boolean; reason?: string }, actor: Actor) {
+export async function cancelBooking(bookingId: string, opts: { byCustomer: boolean; reason?: string; quiet?: boolean }, actor: Actor) {
   const booking = getBooking(bookingId);
   if (booking.status === "cancelled") return booking;
   const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id)!;
@@ -272,7 +291,9 @@ export async function cancelBooking(bookingId: string, opts: { byCustomer: boole
     }
   }
   const updated = getBooking(bookingId);
-  notify("booking_cancelled", updated, changedBy(actor));
+  // Cancelling a whole series sends one summary instead of an email per lesson.
+  if (opts.quiet) notifyQuietly(updated, "cancelled");
+  else notify("booking_cancelled", updated, changedBy(actor));
   return updated;
 }
 

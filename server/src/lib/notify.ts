@@ -55,6 +55,17 @@ export function notify(kind: NotificationKind, booking: Row, by: ChangedBy = "cu
   })().catch((err) => console.error("notify failed", err));
 }
 
+/**
+ * For lessons in a repeating series: make the meeting link and update connected calendars, without emailing or
+ * texting about each lesson (the series sends one summary instead).
+ */
+export function notifyQuietly(booking: Row, change: "confirmed" | "cancelled" = "confirmed") {
+  (async () => {
+    if (booking.meeting_mode === "online") await prepareMeeting(booking.id, change);
+    await syncBookingToCalendars(booking.id);
+  })().catch((err) => console.error("series lesson sync failed", err));
+}
+
 export async function dispatchSms(kind: NotificationKind, booking: Row, by: ChangedBy) {
   const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id);
   if (!business || !smsReady(business)) return;

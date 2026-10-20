@@ -54,6 +54,8 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
   const [payInPerson, setPayInPerson] = useState(false);
   const [meetingMode, setMeetingMode] = useState<"in_person" | "online">("in_person");
   const [done, setDone] = useState<any>(null);
+  const [repeat, setRepeat] = useState(0);
+  const [seriesResult, setSeriesResult] = useState<any>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const { busy, error: bookError, run } = useAction();
 
@@ -65,6 +67,8 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
   const manageHref = (b: any) => `/manage/${b.manageToken}`;
   const needsPayment = biz.requirePayment && service?.price_cents > 0;
   const canPayInPerson = needsPayment && biz.cashRequests;
+  // Repeating bookings are only offered where nothing is paid online (each lesson is paid for at the time).
+  const canRepeat = !!biz.recurring && !needsPayment;
 
   const book = () => run(async () => {
     const res = await api(`/public/businesses/${slug}/bookings`, {
@@ -73,8 +77,10 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
         phone: details.phone || undefined, notes: details.notes || undefined, smsOptIn: smsOptIn && !!details.phone,
         payInPerson: canPayInPerson && payInPerson,
         meetingMode: service.location_mode === "choice" ? meetingMode : undefined,
+        repeat: canRepeat && repeat ? { intervalWeeks: repeat } : undefined,
       },
     });
+    setSeriesResult(res.seriesResult ?? null);
     if (embed && window.parent !== window) window.parent.postMessage({ type: "slotwise:booked", code: res.booking.code, status: res.booking.status }, "*");
     if (res.paymentUrl && embed) setPendingPayment({ url: res.paymentUrl, booking: res.booking });
     else if (res.paymentUrl) window.location.href = res.paymentUrl;
@@ -120,6 +126,14 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
       <div className="container narrow">
         <div className="card stack">
           <h1>You're booked!</h1>
+          {seriesResult && (
+            <div className="notice">
+              🔁 That's {seriesResult.created} lessons, {done.series?.intervalWeeks === 2 ? "every 2 weeks" : "every week"} until {DateTime.fromISO(done.series?.endsAt ?? done.start).setZone(biz.timezone).toFormat("d LLLL yyyy")}.
+              We've emailed you every date with one calendar file for all of them. Two weeks before the last one, we'll send you a link to keep going.
+              {seriesResult.skipped.length > 0 && <div style={{ marginTop: 6 }}>These weeks weren't free, so they aren't included: {seriesResult.skipped.map((k: any) => DateTime.fromISO(k.start).setZone(biz.timezone).toFormat("d LLL")).join(", ")}.</div>}
+            </div>
+          )}
+          {seriesResult && <p className="small muted">Your first lesson:</p>}
           <p>{done.serviceName} with {done.staffName}<br />
             <strong>{DateTime.fromISO(done.start).setZone(biz.timezone).toLocaleString(DateTime.DATETIME_HUGE)}</strong></p>
           <p>Booking code: <strong>{done.code}</strong>. A confirmation goes to {done.customerEmail}.</p>
@@ -226,10 +240,20 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
                 <label className="inline"><input type="radio" name="pay" checked={payInPerson} onChange={() => setPayInPerson(true)} /> Pay in person (cash); {biz.name} will accept or decline your request</label>
               </fieldset>
             )}
-            <p className="small muted">Free cancellation up to {biz.cancellationHours}h before.</p>
+            {canRepeat && (
+              <label>Repeat
+                <select value={repeat} onChange={(e) => setRepeat(Number(e.target.value))}>
+                  <option value={0}>Just this once</option>
+                  <option value={1}>Same time every week ({biz.recurring.weeks} weeks)</option>
+                  <option value={2}>Same time every 2 weeks ({biz.recurring.weeks} weeks)</option>
+                </select>
+              </label>
+            )}
+            {canRepeat && repeat > 0 && <p className="small muted" style={{ margin: 0 }}>🔁 We'll book {Math.ceil(biz.recurring.weeks / repeat)} lessons and tell you about any week that's already taken. You can move or cancel any single lesson, or all of them, later.</p>}
+            <p className="small muted">Free cancellation up to {biz.cancellationHours}h before. By booking you agree to Slotwise's <a href="/terms" {...newTab}>Terms</a> and <a href="/privacy" {...newTab}>Privacy Policy</a>.</p>
             <button className="primary" disabled={busy}>
               {needsPayment && !(canPayInPerson && payInPerson) ? `Continue to payment (${money(service.deposit_cents || service.price_cents, biz.currency)})`
-                : canPayInPerson && payInPerson ? "Send request" : "Confirm booking"}
+                : canPayInPerson && payInPerson ? "Send request" : canRepeat && repeat ? "Book all lessons" : "Confirm booking"}
             </button>
           </form>
         )}

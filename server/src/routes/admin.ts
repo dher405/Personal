@@ -25,6 +25,7 @@ import { handleInboundSms } from "../lib/smsInbound.js";
 import { parseReminderHours } from "../lib/reminders.js";
 import { buyPacks, currentPeriod, meter, usageFor } from "../lib/usage.js";
 import { getPacks } from "../lib/plans.js";
+import { cancelSeries, createSeries, renewSeries, seriesDetail } from "../lib/series.js";
 import { addReply, CATEGORIES, createCase, getCase, serializeCase, type Category } from "../lib/support.js";
 
 export const adminRouter = Router({ mergeParams: true });
@@ -64,6 +65,8 @@ function publicSettings(b: Record<string, any>) {
     sms_ready: smsReady(b),
     meeting_ready: meetingsReady(b),
     meeting_label: MEETING_LABEL[channelsFor(b).meetings.provider],
+    // Repeating series whose last lesson is within two weeks (time to renew).
+    series_ending: one("SELECT COUNT(*) AS n FROM booking_series WHERE business_id = ? AND status = 'active' AND last_start <= ?", b.id, DateTime.utc().plus({ days: 14 }).toISO())!.n,
     requests_waiting: one("SELECT COUNT(*) AS n FROM bookings WHERE business_id = ? AND status = 'requested'", b.id)!.n,
     // Cases support has answered that the business hasn't replied to yet.
     support_waiting: one("SELECT COUNT(*) AS n FROM support_cases WHERE business_id = ? AND status = 'waiting'", b.id)!.n,
@@ -79,7 +82,7 @@ adminRouter.patch("/", h((req) => {
     currency: z.string().length(3), phone: z.string().nullable(), address: z.string().nullable(),
     slot_interval_min: z.number().int().min(5).max(240), min_notice_min: z.number().int().min(0),
     max_advance_days: z.number().int().min(1).max(730), cancellation_hours: z.number().int().min(0),
-    require_payment: z.boolean(), cash_requests: z.boolean(), ai_enabled: z.boolean(), ai_instructions: z.string().max(4000),
+    require_payment: z.boolean(), cash_requests: z.boolean(), ai_enabled: z.boolean(), allow_recurring: z.boolean(), recurring_weeks: z.number().int().min(4).max(52), ai_instructions: z.string().max(4000),
     sms_enabled: z.boolean(), sms_reminder_hours: z.string().max(40), sms_admin_phone: z.string().nullable(),
     sms_admin_alerts: z.boolean(), sms_agenda_hour: z.number().int().min(0).max(23).nullable(),
     sms_staff_reminder_min: z.number().int().min(5).max(24 * 60).nullable(),
@@ -246,18 +249,23 @@ adminRouter.get("/slots", h(async (req) => {
   return findSlotsLive({ businessId: bid(req), serviceId: q.serviceId, from: q.from, to: q.to ?? q.from, staffId: q.staffId, excludeBookingId: q.excludeBookingId });
 }));
 
-adminRouter.post("/bookings", h((req) => {
+adminRouter.post("/bookings", h(async (req) => {
   const body = parse(z.object({
     serviceId: z.string(), staffId: z.string(), start: z.string(), name: z.string().min(1), email: z.email(),
     phone: z.string().optional(), notes: z.string().optional(), priceCents: z.number().int().min(0).optional(), force: z.boolean().optional(),
     smsOptIn: z.boolean().optional(), meetingMode: z.enum(["in_person", "online"]).optional(),
+    repeat: z.object({ intervalWeeks: z.union([z.literal(1), z.literal(2)]), weeks: z.number().int().min(2).max(52).optional() }).optional(),
   }), req.body);
-  const booking = createBooking({
+  const input = {
     businessId: bid(req), serviceId: body.serviceId, staffId: body.staffId, start: body.start,
     customer: { name: body.name, email: body.email, phone: body.phone }, notes: body.notes,
-    source: "admin", force: body.force, priceCentsOverride: body.priceCents, smsOptIn: body.smsOptIn, meetingMode: body.meetingMode,
-  }, actor(req));
-  return serializeBooking(booking, { includeToken: true });
+    source: "admin" as const, force: body.force, priceCentsOverride: body.priceCents, smsOptIn: body.smsOptIn, meetingMode: body.meetingMode,
+  };
+  if (body.repeat) {
+    const result = await createSeries(input, body.repeat.intervalWeeks, actor(req), { weeks: body.repeat.weeks, force: body.force });
+    return { ...serializeBooking(result.created[0], { includeToken: true }), seriesResult: { created: result.created.length, skipped: result.skipped } };
+  }
+  return serializeBooking(createBooking(input, actor(req)), { includeToken: true });
 }));
 
 /**
@@ -283,6 +291,29 @@ adminRouter.post("/bookings/:id/meeting", h(async (req) => {
     notify("booking_confirmed", getBooking(b.id), "staff");
   }
   return serializeBooking(updated);
+}));
+
+// ---------- Repeating bookings ----------
+
+/** Active repeating series, ending soonest first (the Bookings tab lists them). */
+adminRouter.get("/series", h((req) => all(
+  `SELECT s.id, s.customer_name, s.customer_email, s.interval_weeks, s.last_start, s.status, s.reminder_sent_at, sv.name AS service_name, st.name AS staff_name,
+     (SELECT COUNT(*) FROM bookings b WHERE b.series_id = s.id AND b.status = 'confirmed' AND b.starts_at > ?) AS upcoming
+   FROM booking_series s JOIN services sv ON sv.id = s.service_id LEFT JOIN staff st ON st.id = s.staff_id
+   WHERE s.business_id = ? AND s.status = 'active' ORDER BY s.last_start`, DateTime.utc().toISO(), bid(req),
+).map((s) => ({ ...s, ending_soon: DateTime.fromISO(s.last_start) <= DateTime.utc().plus({ days: 14 }) }))));
+
+adminRouter.get("/series/:sid", h((req) => seriesDetail(req.params.sid as string, bid(req))));
+
+adminRouter.post("/series/:sid/renew", h(async (req) => {
+  seriesDetail(req.params.sid as string, bid(req)); // belongs to this business
+  const r = await renewSeries(req.params.sid as string, actor(req));
+  return { ...seriesDetail(r.series.id, bid(req)), added: r.created.length, skipped: r.skipped };
+}));
+
+adminRouter.post("/series/:sid/cancel", h(async (req) => {
+  seriesDetail(req.params.sid as string, bid(req));
+  return cancelSeries(req.params.sid as string, actor(req), false);
 }));
 
 /** Pay-in-person requests: accepting makes it a confirmed booking; declining releases the time and tells the customer. */

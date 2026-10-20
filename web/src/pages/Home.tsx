@@ -252,6 +252,7 @@ export function Home() {
           <span className="lp-footer-links">
             <a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#find">Find a business</a>
             <Link to="/login?next=/admin">Business sign in</Link><Link to="/register?provider=1">Create your page</Link>
+            <Link to="/terms">Terms</Link><Link to="/privacy">Privacy</Link>
           </span>
         </div>
       </footer>

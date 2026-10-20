@@ -405,6 +405,31 @@ CREATE TABLE IF NOT EXISTS support_issue_cases (
 );
 `);
 
+// --- Repeating bookings: a weekly (or fortnightly) series, made 26 weeks at a time and renewed ---
+addColumn("businesses", "allow_recurring", "INTEGER NOT NULL DEFAULT 0");
+addColumn("businesses", "recurring_weeks", "INTEGER NOT NULL DEFAULT 26");
+db.exec(`
+CREATE TABLE IF NOT EXISTS booking_series (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  service_id TEXT NOT NULL REFERENCES services(id),
+  staff_id TEXT NOT NULL REFERENCES staff(id),
+  customer_name TEXT NOT NULL,
+  customer_email TEXT NOT NULL,
+  customer_phone TEXT,
+  interval_weeks INTEGER NOT NULL DEFAULT 1 CHECK (interval_weeks IN (1, 2)),
+  weeks INTEGER NOT NULL DEFAULT 26,
+  -- the last lesson made so far; renewal adds the next block after it
+  last_start TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','ended','cancelled')),
+  reminder_sent_at TEXT,
+  source TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_series_business ON booking_series(business_id, status);
+`);
+addColumn("bookings", "series_id", "TEXT REFERENCES booking_series(id) ON DELETE SET NULL");
+
 // When a paid plan is set to end (moving to Starter), it runs until this time (ISO, UTC), then the business moves to Starter.
 addColumn("businesses", "plan_ends_at", "TEXT");
 db.exec(`

@@ -19,6 +19,8 @@ export function Bookings() {
   const { data: bookings, reload } = useApi<any[]>(`/admin/${biz.id}/bookings?${qs}`);
   const [editing, setEditing] = useState<any>(null);
   const [creating, setCreating] = useState(false);
+  const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [showSeries, setShowSeries] = useState(params.get("series") === "1");
   const action = useAction();
 
   const accept = (b: any) => action.run(async () => {
@@ -57,9 +59,11 @@ export function Bookings() {
         </label>
         <label>Search<input placeholder="Name, email, code" value={range.q} onChange={(e) => setRange({ ...range, q: e.target.value })} /></label>
         <div className="spacer" />
+        <button onClick={() => setShowSeries(!showSeries)}>🔁 Repeating</button>
         <button className="primary" onClick={() => setCreating(true)}>+ New booking</button>
       </div>
       {action.error && <div className="error">{action.error}</div>}
+      {showSeries && <SeriesList onOpen={setSeriesId} />}
       <div className="card table-wrap">
         <table>
           <thead><tr><th>When</th><th>Customer</th><th>Service</th><th>Price / paid</th><th>Status</th><th>Actions</th></tr></thead>
@@ -92,6 +96,7 @@ export function Bookings() {
                     {b.payInPerson && <div className="small">💵 pays in person</div>}
                     {b.customerConfirmedAt && b.status === "confirmed" && <div className="small" title="Customer confirmed attendance">✓ customer confirmed</div>}
                     {b.smsOptIn && <div className="small muted">📱 texts on</div>}
+                    {b.series && <div className="small"><button className="link" onClick={() => setSeriesId(b.series.id)}>🔁 every {b.series.intervalWeeks === 1 ? "week" : "2 weeks"}</button></div>}
                   </td>
                   <td>
                     <div className="row">
@@ -116,7 +121,8 @@ export function Bookings() {
         {bookings?.length === 0 && <p className="muted">No bookings in this range.</p>}
       </div>
       {editing && <EditBooking booking={editing} onClose={() => { setEditing(null); reload(); }} />}
-      {creating && <NewBooking onClose={() => { setCreating(false); reload(); }} />}
+      {creating && <NewBooking onClose={() => { setCreating(false); reload(); reloadBiz(); }} />}
+      {seriesId && <SeriesModal id={seriesId} onClose={() => { setSeriesId(null); reload(); reloadBiz(); }} />}
     </div>
   );
 }
@@ -189,19 +195,39 @@ function NewBooking({ onClose }: { onClose: () => void }) {
   const [serviceId, setServiceId] = useState("");
   const [slot, setSlot] = useState<Slot | null>(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", price: "", smsOptIn: false, meetingMode: "in_person" });
+  const [repeat, setRepeat] = useState({ interval: 0, weeks: biz.recurring_weeks ?? 26 });
+  const [result, setResult] = useState<any>(null);
   const action = useAction();
   const service = services?.find((s) => s.id === serviceId);
 
   const save = () => action.run(async () => {
-    await api(`/admin/${biz.id}/bookings`, {
+    const created = await api<any>(`/admin/${biz.id}/bookings`, {
       body: {
         serviceId, staffId: slot!.staffId, start: slot!.start, name: form.name, email: form.email,
         phone: form.phone || undefined, priceCents: form.price ? toCents(form.price) : undefined, smsOptIn: form.smsOptIn && !!form.phone,
         meetingMode: service?.location_mode === "choice" ? form.meetingMode : undefined,
+        repeat: repeat.interval ? { intervalWeeks: repeat.interval, weeks: Number(repeat.weeks) } : undefined,
       },
     });
-    onClose();
+    if (created.seriesResult) setResult(created.seriesResult);
+    else onClose();
   });
+
+  if (result) {
+    return (
+      <div className="modal-bg" onClick={onClose}>
+        <div className="modal stack" onClick={(e) => e.stopPropagation()}>
+          <h2>🔁 {result.created} lessons booked</h2>
+          <p>{form.name} has been emailed the full list of dates, with one calendar file for all of them.</p>
+          {result.skipped.length > 0 && <>
+            <p className="small"><b>These weeks weren't free</b>, so they were left out. Book them by hand at another time if needed:</p>
+            <ul className="small">{result.skipped.map((s: any) => <li key={s.start}>{DateTime.fromISO(s.start).setZone(biz.timezone).toFormat("ccc d LLL yyyy, h:mm a")} — {s.reason}</li>)}</ul>
+          </>}
+          <div className="row"><button className="primary" onClick={onClose}>Done</button></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal-bg" onClick={onClose}>
@@ -231,7 +257,96 @@ function NewBooking({ onClose }: { onClose: () => void }) {
         {biz.sms_ready ? (
           <label className="inline small"><input type="checkbox" checked={form.smsOptIn} disabled={!form.phone} onChange={(e) => setForm({ ...form, smsOptIn: e.target.checked })} /> Customer agreed to text reminders</label>
         ) : null}
-        <div className="row"><button className="primary" disabled={!slot || !form.name || !form.email || action.busy} onClick={save}>Create booking</button><button onClick={onClose}>Cancel</button></div>
+        <div className="form-grid">
+          <label>Repeat
+            <select value={repeat.interval} onChange={(e) => setRepeat({ ...repeat, interval: Number(e.target.value) })}>
+              <option value={0}>Doesn't repeat</option><option value={1}>Every week</option><option value={2}>Every 2 weeks</option>
+            </select>
+          </label>
+          {repeat.interval > 0 && <label>For (weeks)<input type="number" min={2} max={52} value={repeat.weeks} onChange={(e) => setRepeat({ ...repeat, weeks: e.target.value as any })} /></label>}
+        </div>
+        {repeat.interval > 0 && <p className="small muted">Same day and time {repeat.interval === 1 ? "every week" : "every other week"} for {repeat.weeks} weeks. Weeks that are already taken are skipped and listed. Two weeks before the last lesson, you and the customer are reminded so it can be renewed.</p>}
+        <div className="row"><button className="primary" disabled={!slot || !form.name || !form.email || action.busy} onClick={save}>{repeat.interval ? "Create lessons" : "Create booking"}</button><button onClick={onClose}>Cancel</button></div>
+      </div>
+    </div>
+  );
+}
+
+const when = (iso: string, zone: string, fmt = "ccc d LLL yyyy") => DateTime.fromISO(iso).setZone(zone).toFormat(fmt);
+
+function SeriesList({ onOpen }: { onOpen: (id: string) => void }) {
+  const { biz } = useBusiness();
+  const { data: series } = useApi<any[]>(`/admin/${biz.id}/series`);
+  return (
+    <div className="card table-wrap">
+      <h3 style={{ marginTop: 0 }}>🔁 Repeating bookings</h3>
+      <table>
+        <thead><tr><th>Customer</th><th>Service</th><th>Repeats</th><th>Last lesson</th><th /></tr></thead>
+        <tbody>
+          {series?.map((s) => (
+            <tr key={s.id}>
+              <td>{s.customer_name}<div className="small muted">{s.customer_email}</div></td>
+              <td>{s.service_name}<div className="small muted">{s.staff_name}</div></td>
+              <td>Every {s.interval_weeks === 1 ? "week" : "2 weeks"}<div className="small muted">{s.upcoming} to come</div></td>
+              <td>{when(s.last_start, biz.timezone)}{s.ending_soon && <div className="small" style={{ color: "var(--warn)" }}>Ends soon{s.reminder_sent_at ? " · renewal link sent" : ""}</div>}</td>
+              <td><button onClick={() => onOpen(s.id)}>Open</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {series?.length === 0 && <p className="muted">No repeating bookings yet. Choose “Repeat” when you make a booking.</p>}
+    </div>
+  );
+}
+
+function SeriesModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const { biz } = useBusiness();
+  const { data: s, reload } = useApi<any>(`/admin/${biz.id}/series/${id}`);
+  const [message, setMessage] = useState("");
+  const action = useAction();
+  const now = DateTime.utc();
+
+  const renew = () => action.run(async () => {
+    if (!confirm(`Add the next ${s.weeks} weeks after ${when(s.last_start, biz.timezone)}? ${s.customer_name} is emailed the new dates.`)) return;
+    const r = await api<any>(`/admin/${biz.id}/series/${id}/renew`, { method: "POST" });
+    setMessage(`${r.added} lessons added.${r.skipped.length ? ` ${r.skipped.length} week(s) weren't free and were skipped: ${r.skipped.map((k: any) => when(k.start, biz.timezone, "d LLL")).join(", ")}.` : ""}`);
+    reload();
+  });
+  const cancel = () => action.run(async () => {
+    if (!confirm(`Cancel all of ${s.customer_name}'s remaining lessons? They get one email. Refunds are issued separately.`)) return;
+    const r = await api<any>(`/admin/${biz.id}/series/${id}/cancel`, { method: "POST" });
+    setMessage(`${r.cancelled} lessons cancelled.`);
+    reload();
+  });
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal stack" onClick={(e) => e.stopPropagation()}>
+        {!s ? <p className="muted">Loading…</p> : <>
+          <h2>🔁 {s.customer_name}, every {s.interval_weeks === 1 ? "week" : "2 weeks"}</h2>
+          <p className="small muted">{s.customer_email}{s.customer_phone ? ` · ${s.customer_phone}` : ""} · status: {s.status} · last lesson {when(s.last_start, biz.timezone)}</p>
+          {s.endsSoon && <div className="notice" style={{ background: "var(--warn-soft)", color: "var(--warn)" }}>This series ends soon.{s.reminder_sent_at ? " The customer has been emailed a link to renew." : ""}</div>}
+          {message && <div className="notice">{message}</div>}
+          {action.error && <div className="error">{action.error}</div>}
+          <div style={{ maxHeight: 260, overflow: "auto" }}>
+            <table>
+              <tbody>
+                {s.lessons.map((l: any) => (
+                  <tr key={l.id} style={{ opacity: DateTime.fromISO(l.starts_at) < now ? 0.55 : 1 }}>
+                    <td>{when(l.starts_at, biz.timezone, "ccc d LLL yyyy, h:mm a")}</td><td className="small muted">{l.code}</td>
+                    <td><span className={`badge ${badge[l.status]}`}>{l.status.replace("_", " ")}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="small muted">To move or cancel one lesson, use Edit / move or Cancel on it in the bookings list.</p>
+          <div className="row">
+            {s.status !== "cancelled" && <button className="primary" disabled={action.busy} onClick={renew}>Renew for {s.weeks} more weeks</button>}
+            {s.status === "active" && <button className="danger" disabled={action.busy} onClick={cancel}>Cancel remaining lessons</button>}
+            <button onClick={onClose}>Close</button>
+          </div>
+        </>}
       </div>
     </div>
   );

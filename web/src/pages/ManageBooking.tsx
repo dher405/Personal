@@ -14,6 +14,7 @@ export function ManageBooking() {
   const { data, reload, error } = useApi<any>(`/public/manage/${token}`);
   const [moving, setMoving] = useState(false);
   const [slot, setSlot] = useState<Slot | null>(null);
+  const [seriesMessage, setSeriesMessage] = useState("");
   const action = useAction();
 
   // Back from a hosted checkout: settle with the provider now rather than waiting for the webhook.
@@ -26,6 +27,20 @@ export function ManageBooking() {
   const { booking: b, business: biz } = data;
   const when = DateTime.fromISO(b.start).setZone(biz.timezone);
   const active = ["confirmed", "pending_payment"].includes(b.status);
+  const series = b.series;
+  // Renewing opens in the three weeks before the last lesson (the reminder email links here with ?renew=1).
+  const canRenew = series && series.status !== "cancelled" && DateTime.fromISO(series.endsAt) <= DateTime.utc().plus({ days: 21 });
+  const renewSeries = () => action.run(async () => {
+    const r = await api(`/public/manage/${token}/series/renew`, { method: "POST", body: {} });
+    setSeriesMessage(`Done! ${r.added} more lessons are booked. We've emailed you the new dates.${r.skipped.length ? ` These weeks weren't free: ${r.skipped.map((k: any) => DateTime.fromISO(k.start).setZone(biz.timezone).toFormat("d LLL")).join(", ")}.` : ""}`);
+    reload();
+  });
+  const cancelSeries = () => action.run(async () => {
+    if (!confirm(`Cancel all your remaining ${b.serviceName} lessons?`)) return;
+    const r = await api(`/public/manage/${token}/series/cancel`, { method: "POST", body: {} });
+    setSeriesMessage(`${r.cancelled} lessons cancelled.${r.kept.length ? ` Lessons within ${biz.cancellation_hours}h can't be cancelled online, so ${r.kept.length} stayed booked; call ${biz.phone || biz.name} about those.` : ""}`);
+    reload();
+  });
 
   return (
     <div className="container narrow">
@@ -61,6 +76,26 @@ export function ManageBooking() {
           : <p className="small">💻 This is an online session. {biz.name} will send you the meeting link before it starts.</p>)}
         {b.meetingMode !== "online" && b.status === "confirmed" && biz.address && <p className="small">📍 {biz.address}</p>}
         {b.status === "confirmed" && <AddToCalendar links={b.calendarLinks} />}
+        {series && (
+          <div className="stack" style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+            <div><b>🔁 Repeats every {series.intervalWeeks === 1 ? "week" : "2 weeks"}</b>
+              <div className="small muted">
+                {series.status === "cancelled" ? "The rest of this series was cancelled." : `${series.upcoming} lesson${series.upcoming === 1 ? "" : "s"} to come; the last is ${DateTime.fromISO(series.endsAt).setZone(biz.timezone).toFormat("ccc d LLLL yyyy")}.`}
+              </div>
+            </div>
+            {seriesMessage && <div className="notice">{seriesMessage}</div>}
+            {canRenew && !seriesMessage && (
+              <div className={params.get("renew") === "1" ? "notice" : ""}>
+                <p style={{ marginTop: 0 }}>Want to keep going? Book the next {series.weeks} weeks at the same time.</p>
+                <button className="primary" disabled={action.busy} onClick={renewSeries}>Keep my lessons for {series.weeks} more weeks</button>
+              </div>
+            )}
+            {series.status === "active" && series.upcoming > 0 && (
+              <div><button className="danger" disabled={action.busy} onClick={cancelSeries}>Cancel all remaining lessons</button></div>
+            )}
+            <p className="small muted" style={{ margin: 0 }}>The buttons below change this lesson only.</p>
+          </div>
+        )}
         {active && (b.customerConfirmedAt ? <span className="badge ok">You confirmed you'll be there</span> : (
           <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { await api(`/public/manage/${token}/confirm`, { method: "POST", body: {} }); reload(); })}>
             ✓ I'll be there

@@ -245,3 +245,8 @@ html[data-embed] .container { padding: 8px; }
   .lp-day-item { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .lp-btn-big { width: 100%; justify-content: center; }
 }
+
+/* Terms & Privacy */
+.legal { line-height: 1.6; }
+.legal h2 { font-size: 1.15rem; margin-top: 28px; }
+.legal li { margin-bottom: 6px; }

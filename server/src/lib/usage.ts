@@ -26,7 +26,7 @@ export const currentPeriod = () => DateTime.utc().toFormat("yyyy-LL");
 
 function usedThisMonth(businessId: string, metric: Metric): number {
   return one<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM usage_events WHERE business_id = ? AND metric = ? AND created_at >= datetime('now','start of month')",
+    "SELECT COUNT(*) AS n FROM usage_events WHERE business_id = ? AND metric = ? AND created_at >= datetime('now','start of month') AND created_at < datetime('now','start of month','+1 month')",
     businessId, metric,
   )!.n;
 }
@@ -70,9 +70,13 @@ export function hasCapacity(business: Row, metric: Metric): boolean {
 }
 
 /** Counts one use (idempotent per ref id), then sends any 80% / 100% alerts due. */
-export function recordUse(business: Row, metric: Metric, refId: string) {
-  const res = run("INSERT OR IGNORE INTO usage_events (business_id, metric, ref_id) VALUES (?,?,?)", business.id, metric, refId);
-  if (res.changes) checkAlerts(business, metric).catch((err) => console.error("usage alert failed", err));
+export function recordUse(business: Row, metric: Metric, refId: string, countIn?: DateTime) {
+  // A repeating booking's later weeks count in the month they happen, not all at once when the series is made.
+  const later = countIn && countIn.toUTC().startOf("month") > DateTime.utc().startOf("month");
+  const res = later
+    ? run("INSERT OR IGNORE INTO usage_events (business_id, metric, ref_id, created_at) VALUES (?,?,?,?)", business.id, metric, refId, countIn!.toUTC().startOf("month").toFormat("yyyy-LL-dd HH:mm:ss"))
+    : run("INSERT OR IGNORE INTO usage_events (business_id, metric, ref_id) VALUES (?,?,?)", business.id, metric, refId);
+  if (res.changes && !later) checkAlerts(business, metric).catch((err) => console.error("usage alert failed", err));
 }
 
 export function grantCredits(businessId: string, pack: UsagePack, packs: number, source: "purchase" | "auto" | "grant", actor: { id?: string | null; label: string }, externalRef?: string) {

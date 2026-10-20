@@ -89,6 +89,12 @@ export function AdminLayout({ basePath, extraTabs = [], embedded = false, header
             <Link to={`${base}/bookings?status=requested`}><b>Accept or decline</b></Link>
           </div>
         )}
+        {biz.series_ending > 0 && (
+          <div className="notice" style={{ marginTop: 12, background: "var(--warn-soft)", color: "var(--warn)" }}>
+            🔁 {biz.series_ending === 1 ? "1 repeating booking ends" : `${biz.series_ending} repeating bookings end`} within two weeks. The customers have been emailed a link to renew.{" "}
+            <Link to={`${base}/bookings?series=1`}><b>Review or renew</b></Link>
+          </div>
+        )}
         <nav className="tabs" style={{ marginTop: 16 }}>
           {tabs.map(([path, label]) => <NavLink key={path} end to={path ? `${base}/${path}` : base}>{label}</NavLink>)}
           {extraTabs.map((t) => <NavLink key={t.path} to={`${base}/${t.path}`}>{t.label}</NavLink>)}

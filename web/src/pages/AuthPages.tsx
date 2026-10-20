@@ -68,6 +68,7 @@ export function Register() {
             <label>Timezone<input required value={form.timezone} onChange={set("timezone")} /></label>
           </>
         )}
+        <span className="small muted">By creating an account you agree to the <Link to="/terms" target="_blank">Terms of Service</Link> and <Link to="/privacy" target="_blank">Privacy Policy</Link>.</span>
         <button className="primary" disabled={busy}>Create account</button>
         <span className="muted small">Already have an account? <Link to="/login">Sign in</Link></span>
       </form>

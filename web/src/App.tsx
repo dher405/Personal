@@ -9,6 +9,7 @@ import { AdminHome, AdminLayout } from "./pages/admin/AdminLayout";
 import { SuperAdmin } from "./pages/super/SuperAdmin";
 import { MyBookings } from "./pages/MyBookings";
 import { GuidePage } from "./pages/GuidePage";
+import { PrivacyPage, TermsPage } from "./pages/LegalPages";
 
 function TopBar() {
   const { session, logout } = useAuth();
@@ -73,6 +74,8 @@ export function App() {
         <Route path="/embed/:slug" element={<BookingPage embed />} />
         <Route path="/manage/:token" element={<ManageBooking />} />
         <Route path="/guide" element={<GuidePage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/me" element={<RequireRole roles={["customer", "admin", "superadmin"]}><MyBookings /></RequireRole>} />
         <Route path="/admin" element={<RequireRole roles={["admin", "superadmin"]}><SuperRedirect><AdminHome /></SuperRedirect></RequireRole>} />
         <Route path="/admin/:bid/*" element={<RequireRole roles={["admin", "superadmin"]}><SuperRedirect><AdminLayout /></SuperRedirect></RequireRole>} />

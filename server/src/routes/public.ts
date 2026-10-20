@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DateTime } from "luxon";
 import { all, one } from "../db.js";
 import { findSlotsLive, freeInConnectedCalendars } from "../lib/availability.js";
-import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, serializeBooking, startPayment } from "../lib/bookings.js";
+import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, serializeBooking, startPayment, getBooking } from "../lib/bookings.js";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { getPlan, getPlans } from "../lib/plans.js";
@@ -12,7 +12,9 @@ import { aiAvailable, chat } from "../ai/chat.js";
 import { customerIcs } from "../lib/ics.js";
 import { rateLimit } from "../lib/rateLimit.js";
 import { channelsFor, smsReady } from "../lib/channels.js";
+import { cancelSeries, createSeries, renewSeries } from "../lib/series.js";
 import { MEETING_LABEL } from "../lib/meetings.js";
+import { legalInfo } from "../lib/platformSettings.js";
 
 export const publicRouter = Router();
 
@@ -33,6 +35,9 @@ publicRouter.get("/businesses", h((req) => {
 }));
 
 /** Plan prices for the marketing page, straight from what the super admin set in Plans & fees. */
+/** Details for the Terms and Privacy pages (set under Super admin → Settings → Legal pages). */
+publicRouter.get("/legal", h(() => legalInfo()));
+
 publicRouter.get("/plans", h(() => getPlans().map((p) => ({
   id: p.id, name: p.name, monthlyPriceCents: p.monthlyPriceCents, bookingsPerMonth: p.bookingsPerMonth,
   maxStaff: p.maxStaff, aiChat: p.aiChat, aiMessagesPerMonth: p.aiMessagesPerMonth,
@@ -48,6 +53,8 @@ publicRouter.get("/businesses/:slug", h((req) => {
     smsEnabled: smsReady(b),
     // Customers may ask to pay in person instead of online (the business accepts or declines).
     cashRequests: !!b.cash_requests && !!b.require_payment && b.payment_provider !== "none",
+    // Customers may book the same time every week (only where payment isn't taken online at booking).
+    recurring: b.allow_recurring ? { weeks: b.recurring_weeks } : null,
     onlineBookingPaused: !roomFor(b, "bookings"),
     services: all("SELECT id, name, description, category, duration_min, price_cents, deposit_cents, location_mode FROM services WHERE business_id = ? AND active = 1 ORDER BY category, name", b.id),
     // Shown to customers choosing online ("Online (Zoom)").
@@ -79,13 +86,21 @@ publicRouter.post("/businesses/:slug/bookings", rateLimit({ windowMs: 60_000, ma
     smsOptIn: z.boolean().optional(),
     payInPerson: z.boolean().optional(),
     meetingMode: z.enum(["in_person", "online"]).optional(),
+    repeat: z.object({ intervalWeeks: z.union([z.literal(1), z.literal(2)]) }).optional(),
   }), req.body);
+  if (body.repeat && !b.allow_recurring) throw badRequest(`${b.name} doesn't take repeating bookings online. Book one lesson, or ask them to set up a regular time.`);
   if (body.staffId && !(await freeInConnectedCalendars(b.id, body.staffId, body.start, body.serviceId))) throw conflict("That time is no longer available");
-  const booking = createBooking({
+  const bookingInput = {
     businessId: b.id, serviceId: body.serviceId, staffId: body.staffId, start: body.start,
     customer: { name: body.name, email: body.email, phone: body.phone },
     customerId: req.user?.id, notes: body.notes, source: body.source, smsOptIn: body.smsOptIn, payInPerson: body.payInPerson, meetingMode: body.meetingMode,
-  }, req.user ? { id: req.user.id, label: req.user.email } : { label: `guest:${body.email}` });
+  };
+  const who = req.user ? { id: req.user.id, label: req.user.email } : { label: `guest:${body.email}` };
+  if (body.repeat) {
+    const result = await createSeries(bookingInput, body.repeat.intervalWeeks, who);
+    return { booking: serializeBooking(result.created[0], { includeToken: true }), seriesResult: { created: result.created.length, skipped: result.skipped } };
+  }
+  const booking = createBooking(bookingInput, who);
   const paymentUrl = booking.status === "pending_payment" ? await startPayment(booking.id) : undefined;
   return { booking: serializeBooking(booking, { includeToken: true }), paymentUrl };
 }));
@@ -126,6 +141,23 @@ publicRouter.post("/manage/:token/cancel", h(async (req) => {
   const b = bookingByToken(req.params.token as string);
   const updated = await cancelBooking(b.id, { byCustomer: true, reason: req.body?.reason }, { label: `customer:${b.customer_email}` });
   return serializeBooking(updated, { includeToken: true });
+}));
+
+/** "Keep my weekly lesson for another 26 weeks" (from the renewal email) and "cancel all remaining lessons". */
+publicRouter.post("/manage/:token/series/renew", h(async (req) => {
+  const b = bookingByToken(req.params.token as string);
+  if (!b.series_id) throw badRequest("This booking isn't part of a repeating series");
+  // Customers renew from the reminder, sent two weeks before the last lesson (a little leeway either side).
+  const series = one("SELECT last_start FROM booking_series WHERE id = ?", b.series_id)!;
+  if (DateTime.fromISO(series.last_start) > DateTime.utc().plus({ days: 21 })) throw badRequest("You can renew in the two weeks before your last lesson; we'll email you a link then");
+  const r = await renewSeries(b.series_id, { label: `customer:${b.customer_email}` });
+  return { added: r.created.length, skipped: r.skipped, booking: serializeBooking(getBooking(b.id), { includeToken: true }) };
+}));
+
+publicRouter.post("/manage/:token/series/cancel", h(async (req) => {
+  const b = bookingByToken(req.params.token as string);
+  if (!b.series_id) throw badRequest("This booking isn't part of a repeating series");
+  return cancelSeries(b.series_id, { label: `customer:${b.customer_email}` }, true);
 }));
 
 publicRouter.post("/manage/:token/confirm", h((req) => {

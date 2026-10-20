@@ -16,6 +16,8 @@ interface SlotQuery {
   now?: DateTime;
   /** Busy times from staff's connected Google/Outlook calendars (see findSlotsLive). */
   externalBusy?: Map<string, Interval[]>;
+  /** Repeating bookings: later weeks may fall outside the "book up to" window and inside minimum notice of nothing. */
+  ignoreBookingWindow?: boolean;
 }
 
 export function eligibleStaff(businessId: string, serviceId: string, staffId?: string) {
@@ -55,8 +57,8 @@ export function findSlots(q: SlotQuery): Slot[] {
 
   const zone = business.timezone;
   const now = (q.now ?? DateTime.utc()).setZone(zone);
-  const earliest = now.plus({ minutes: business.min_notice_min });
-  const latest = now.plus({ days: business.max_advance_days }).endOf("day");
+  const earliest = q.ignoreBookingWindow ? now : now.plus({ minutes: business.min_notice_min });
+  const latest = q.ignoreBookingWindow ? now.plus({ years: 2 }) : now.plus({ days: business.max_advance_days }).endOf("day");
 
   let day = DateTime.fromISO(q.from, { zone }).startOf("day");
   const lastDay = DateTime.min(DateTime.fromISO(q.to, { zone }).endOf("day"), latest);
@@ -95,13 +97,13 @@ export function findSlots(q: SlotQuery): Slot[] {
 }
 
 /** True when `start` is a currently-offered slot for this service/staff. */
-export function isSlotAvailable(businessId: string, serviceId: string, staffId: string, start: string, excludeBookingId?: string) {
+export function isSlotAvailable(businessId: string, serviceId: string, staffId: string, start: string, excludeBookingId?: string, ignoreBookingWindow = false) {
   const business = one("SELECT timezone FROM businesses WHERE id = ?", businessId);
   if (!business) return false;
   const startDt = DateTime.fromISO(start, { zone: "utc" });
   if (!startDt.isValid) return false;
   const day = startDt.setZone(business.timezone).toISODate()!;
-  return findSlots({ businessId, serviceId, staffId, from: day, to: day, excludeBookingId }).some(
+  return findSlots({ businessId, serviceId, staffId, from: day, to: day, excludeBookingId, ignoreBookingWindow }).some(
     (s) => DateTime.fromISO(s.start).toMillis() === startDt.toMillis(),
   );
 }

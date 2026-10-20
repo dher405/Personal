@@ -217,6 +217,24 @@ The **Dashboard** shows today's appointments and this month's numbers. The **Boo
 
 **When customers act themselves,** you don't need to do anything. Their changes appear here straight away, and you can get a text for each one (see Text messages).
 
+## Repeating bookings (weekly lessons)
+
+For regulars such as weekly music lessons, one booking can repeat at the same day and time **every week** or **every 2 weeks**. Each lesson is a normal booking: it appears on its own in Bookings and in synced calendars, and you or the customer can move or cancel a single lesson without affecting the rest.
+
+**How long a series runs.** A series books **26 weeks** ahead by default (about six months). You can change this under **Settings → Repeating bookings** to anywhere from 4 to 52 weeks. It never renews on its own.
+
+**Letting customers choose it.** In **Settings → Repeating bookings**, tick **Let customers book the same time every week or every 2 weeks**. The booking page then shows a **Repeat** choice. This is only offered where nothing is paid online, so if you've ticked **Require payment to confirm** on the Payments tab, customers won't see it. You can still set a series up for them yourself.
+
+**Setting one up yourself.** In **Bookings**, click **+ New booking**, pick the first lesson, then choose **Repeat: Every week** or **Every 2 weeks** and the number of weeks. Bookings you make never require online payment.
+
+**Weeks that aren't free.** Weeks that are already booked, blocked as time off, or busy in a connected calendar are skipped. Slotwise lists them so you can book those weeks at another time by hand. The customer gets one email with every date and a single calendar file for all the lessons, not one email per lesson.
+
+**Renewing.** Two weeks before the last lesson, the customer is emailed a link to keep their time for another block of weeks, and you're emailed too. A yellow banner in your portal shows series that are ending. The customer renews with one click. You can renew any time: click **🔁 Repeating** in Bookings (or the 🔁 tag on any lesson), open the series and click **Renew**.
+
+**Cancelling the rest.** Open the series and click **Cancel remaining lessons**, or the customer can click **Cancel all remaining lessons** on their booking page. Lessons inside your cancellation cutoff stay booked when a customer cancels online.
+
+**Billing.** Each lesson counts toward your booking allowance in the month it takes place, not all at once when the series is made.
+
 ## Getting paid
 
 Customer payments go straight into your own Stripe, Square or PayPal account. Slotwise never sees card numbers: customers pay on the provider's own secure checkout page.

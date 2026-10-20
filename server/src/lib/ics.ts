@@ -95,6 +95,14 @@ export function inviteIcs(booking: Row, method: "REQUEST" | "CANCEL") {
   return calendar(vevent(ctx, { ...customerEventText(ctx), cancelled: method === "CANCEL", attendee: true, alarmMinutes: 60 }), [`METHOD:${method}`]);
 }
 
+/** Every lesson of a repeating series in one invitation, each its own event (so each can move or cancel on its own). */
+export function seriesInviteIcs(bookings: Row[], method: "REQUEST" | "CANCEL") {
+  return calendar(bookings.flatMap((b) => {
+    const ctx = bookingContext(b);
+    return vevent(ctx, { ...customerEventText(ctx), cancelled: method === "CANCEL", attendee: true, alarmMinutes: 60 });
+  }), [`METHOD:${method}`]);
+}
+
 /** One-click links for calendars that don't open .ics files from a link. */
 export function addToCalendarLinks(booking: Row) {
   const ctx = bookingContext(booking);

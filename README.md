@@ -40,6 +40,7 @@ Every change to a booking, price, refund, or plan is written to an audit log, al
   - Anything else goes to the AI assistant, if the business has it on ("can I come Thursday at 4 instead?").
 
   Admins get a text when customers book, confirm, reschedule or cancel, plus an optional morning agenda. Staff can get an "up next" text before each appointment. Admins can text **TODAY** or **TOMORROW** for their schedule, or (on AI plans) ask in plain words to move or cancel bookings. STOP/START opt-outs are respected. Businesses pay Twilio for their own texts; Slotwise doesn't meter them.
+- **Repeating bookings.** A booking can repeat every week or every 2 weeks for a block of weeks (26 by default; each business can choose 4–52 under Settings). Each lesson is its own booking. Weeks that aren't free are skipped and listed. The customer gets one summary email with a single calendar file. Two weeks before the last lesson, the customer is emailed a one-click renewal link (`/manage/<token>?renew=1`) and the business is told. Customers can choose it on the booking page only when the business allows it and doesn't take payment online; admins can set it up from **+ New booking** at any time. Lessons count toward the booking allowance in the month they happen.
 - **Refunds.** Full or partial, from the admin bookings screen, the payments list, the super admin payments list, or the mobile admin. If a customer cancels online within the policy window, they're refunded automatically.
 
 ## Try it online
@@ -284,6 +285,6 @@ To publish to the App Store and Google Play, use EAS: `npx eas build` then `npx 
 - [ ] Tell businesses that texting needs their own Twilio number with **A2P 10DLC (or toll-free) registration**; texts sent before registration are blocked by US carriers.
 - [ ] **Platform email provider** (Resend or Postmark) so password resets and owner alerts are delivered. (Customer emails go through each business's own account.)
 - [ ] Switch your Stripe billing keys to live and register the webhook above.
-- [ ] Terms of service, privacy policy, and refund policy pages. Your payment providers' platform agreements will ask for these.
+- [ ] Fill in **Super admin → Settings → Legal pages** (company name, contact email, address, governing law). The Terms (`/terms`) and Privacy Policy (`/privacy`) pages are templates written around how Slotwise works: **have a lawyer review them.** They're linked from the home page footer, sign-up and every booking page. Use `https://<your domain>/privacy` as the privacy policy URL for Google's OAuth verification.
 - [ ] Use a shared rate-limit store (Redis) if you run more than one API instance.
 - [ ] Currencies are assumed to have 2 decimal places. Zero-decimal currencies such as JPY need adjusting in `payments/types.ts`.

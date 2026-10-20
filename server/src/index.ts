@@ -2,6 +2,7 @@ import { config } from "./config.js";
 import { createApp } from "./app.js";
 import { expireUnpaidBookings } from "./lib/bookings.js";
 import { runReminders } from "./lib/reminders.js";
+import { runSeriesReminders } from "./lib/series.js";
 import { seed } from "./seed.js";
 import { db } from "./db.js";
 import { storageStatus } from "./lib/storage.js";
@@ -34,6 +35,11 @@ setInterval(() => {
   const n = expireUnpaidBookings();
   if (n) console.log(`Expired ${n} unpaid booking(s)`);
 }, 5 * 60_000).unref();
+
+// Repeating lessons: "continue for another 26 weeks?" two weeks before a series ends.
+setInterval(() => {
+  runSeriesReminders().catch((err) => console.error("series reminders failed", err));
+}, 60 * 60_000).unref();
 
 // Text reminders, staff "up next" texts and the admin's morning agenda.
 setInterval(() => {
