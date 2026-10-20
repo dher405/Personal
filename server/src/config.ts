@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { existsSync } from "node:fs";
 
 const env = process.env;
 
@@ -34,7 +35,8 @@ export const config = {
   demoMode: env.DEMO_MODE === "true",
   jwtSecret: env.JWT_SECRET ?? "dev-only-secret",
   encryptionKey: env.APP_ENCRYPTION_KEY ?? "",
-  databasePath: env.DATABASE_PATH ?? "./slotwise.db",
+  // On Render, a disk mounted at /var/data is used automatically even if DATABASE_PATH wasn't set.
+  databasePath: env.DATABASE_PATH ?? (env.RENDER && existsSync("/var/data") ? "/var/data/slotwise.db" : "./slotwise.db"),
   isProduction: env.NODE_ENV === "production",
   // Integration settings are getters: each read checks the super admin's Settings page first
   // (stored encrypted in the database), then the environment. Changes apply without a redeploy.

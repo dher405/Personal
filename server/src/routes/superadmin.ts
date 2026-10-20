@@ -10,6 +10,7 @@ import { grantCredits, usageFor } from "../lib/usage.js";
 import { describeSettings, saveSettings, testSettings } from "../lib/platformSettings.js";
 import { setPlan } from "../lib/platformBilling.js";
 import { emailResetLink } from "../lib/passwordReset.js";
+import { storageStatus } from "../lib/storage.js";
 
 /** Platform-wide controls. Mounted behind requireSuperAdmin. Business-level actions reuse /api/admin/:bid. */
 export const superRouter = Router();
@@ -23,6 +24,7 @@ superRouter.get("/overview", h(() => ({
   payingBusinesses: one("SELECT COUNT(*) AS n FROM businesses WHERE platform_subscription_id IS NOT NULL AND suspended = 0")!.n,
   byPlan: all("SELECT plan, COUNT(*) AS n FROM businesses GROUP BY plan"),
   sms30d: one("SELECT COUNT(*) AS n FROM sms_messages WHERE direction = 'outbound' AND status NOT IN ('failed','skipped') AND created_at >= datetime('now','-30 days')")!.n,
+  storage: storageStatus(),
 })));
 
 superRouter.get("/businesses", h((req) => {

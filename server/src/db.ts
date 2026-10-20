@@ -1,12 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { assertStorageReady } from "./lib/storage.js";
 
 /**
  * SQLite via Node's built-in driver keeps local setup dependency-free.
  * All SQL lives behind this module, so moving to Postgres later means
  * swapping this file and the query helpers, not the routes.
  */
+assertStorageReady();
 export const db = new DatabaseSync(process.env.NODE_ENV === "test" ? ":memory:" : config.databasePath);
 db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
 

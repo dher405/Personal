@@ -48,15 +48,19 @@ function Overview() {
   const { data } = useApi<any>("/super/overview");
   if (!data) return <div className="muted">Loading…</div>;
   return (
-    <div className="grid">
-      <div className="card"><div className="muted small">Businesses</div><div className="stat">{data.businesses}</div></div>
-      <div className="card"><div className="muted small">Users</div><div className="stat">{data.users}</div></div>
-      <div className="card"><div className="muted small">Bookings (30d)</div><div className="stat">{data.bookings30d}</div></div>
-      <div className="card"><div className="muted small">Customer payments (30d)</div><div className="stat">{money(data.gmv30dCents)}</div></div>
-      <div className="card"><div className="muted small">Paying businesses</div><div className="stat">{data.payingBusinesses}</div></div>
-      <div className="card"><div className="muted small">Booking packs sold (30d)</div><div className="stat">{money(data.packs30dCents)}</div></div>
-      <div className="card"><div className="muted small">Texts sent (30d)</div><div className="stat">{data.sms30d}</div></div>
-      <div className="card"><div className="muted small">By plan</div>{data.byPlan.map((p: any) => <div key={p.plan}>{p.plan}: <strong>{p.n}</strong></div>)}</div>
+    <div className="stack">
+      {data.storage?.persistent === false && <div className="error"><b>Data isn't being kept.</b> {data.storage.message}</div>}
+      {data.storage?.persistent === true && <div className="small muted">✓ {data.storage.message}</div>}
+      <div className="grid">
+        <div className="card"><div className="muted small">Businesses</div><div className="stat">{data.businesses}</div></div>
+        <div className="card"><div className="muted small">Users</div><div className="stat">{data.users}</div></div>
+        <div className="card"><div className="muted small">Bookings (30d)</div><div className="stat">{data.bookings30d}</div></div>
+        <div className="card"><div className="muted small">Customer payments (30d)</div><div className="stat">{money(data.gmv30dCents)}</div></div>
+        <div className="card"><div className="muted small">Paying businesses</div><div className="stat">{data.payingBusinesses}</div></div>
+        <div className="card"><div className="muted small">Booking packs sold (30d)</div><div className="stat">{money(data.packs30dCents)}</div></div>
+        <div className="card"><div className="muted small">Texts sent (30d)</div><div className="stat">{data.sms30d}</div></div>
+        <div className="card"><div className="muted small">By plan</div>{data.byPlan.map((p: any) => <div key={p.plan}>{p.plan}: <strong>{p.n}</strong></div>)}</div>
+      </div>
     </div>
   );
 }
