@@ -40,8 +40,11 @@ export function createApp() {
     // Client-side routes (/b/:slug, /admin/...) all load index.html.
     app.get(/^\/(?!api\/).*/, (req, res) => {
       // Only the booking widget may be framed by other sites; everything else (admin!) refuses, which blocks clickjacking.
-      res.setHeader("Content-Security-Policy", req.path.startsWith("/embed/") ? "frame-ancestors *" : "frame-ancestors 'self'");
-      if (!req.path.startsWith("/embed/")) res.setHeader("X-Frame-Options", "SAMEORIGIN");
+      // The widget sends no frame-ancestors at all: "*" would still refuse pages opened from a file or sandboxed frames.
+      if (!req.path.startsWith("/embed/")) {
+        res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+        res.setHeader("X-Frame-Options", "SAMEORIGIN");
+      }
       res.sendFile(`${webDist}/index.html`, { maxAge: 0 });
     });
   }
