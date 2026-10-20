@@ -90,14 +90,9 @@ export const config = {
       },
     };
   },
-  get twilio() {
-    return {
-      accountSid: v("TWILIO_ACCOUNT_SID"),
-      authToken: v("TWILIO_AUTH_TOKEN"),
-      messagingServiceSid: v("TWILIO_MESSAGING_SERVICE_SID"),
-      fromNumber: v("TWILIO_FROM_NUMBER"),
-      defaultCountryCode: v("SMS_DEFAULT_COUNTRY_CODE", "1"),
-    };
+  /** Country code assumed for phone numbers typed without one (1 = US/Canada). Texts go through each business's own Twilio. */
+  get smsDefaultCountryCode() {
+    return v("SMS_DEFAULT_COUNTRY_CODE", "1");
   },
 };
 

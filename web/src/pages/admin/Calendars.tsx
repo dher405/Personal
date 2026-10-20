@@ -4,18 +4,10 @@ import { DateTime } from "luxon";
 import { api } from "../../api";
 import { useAction, useApi } from "../../hooks";
 import { useBusiness } from "./AdminLayout";
+import { Copy } from "../../components/Setup";
 
 const NAMES: Record<string, string> = { google: "Google Calendar", microsoft: "Outlook" };
 
-function Copy({ value }: { value: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <div className="row" style={{ flexWrap: "nowrap" }}>
-      <input readOnly value={value} onFocus={(e) => e.target.select()} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12 }} />
-      <button onClick={() => { navigator.clipboard?.writeText(value); setDone(true); setTimeout(() => setDone(false), 1500); }}>{done ? "Copied" : "Copy"}</button>
-    </div>
-  );
-}
 
 export function Calendars() {
   const { biz } = useBusiness();

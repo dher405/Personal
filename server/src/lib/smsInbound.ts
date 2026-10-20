@@ -1,12 +1,13 @@
 import { DateTime } from "luxon";
 import { config } from "../config.js";
-import { all, newId, one, run, Row } from "../db.js";
+import { newId, one, run, Row } from "../db.js";
 import { aiChatEnabled } from "../routes/public.js";
 import { chat } from "../ai/chat.js";
 import { findSlotsLive } from "./availability.js";
 import { cancelBooking, confirmAttendance, rescheduleBooking } from "./bookings.js";
 import { getPlan } from "./plans.js";
-import { agendaText, normalizePhone, platformFromNumber, sendSms, templates } from "./sms.js";
+import { agendaText, normalizePhone, sendSms, templates } from "./sms.js";
+import { smsFrom } from "./channels.js";
 import type { AuthUser } from "./auth.js";
 
 /*
@@ -22,6 +23,7 @@ const CANCEL_APPT = new Set(["X"]);
 
 interface Conversation { phone: string; business_id: string | null; booking_id: string | null; state: any; chat_session_id: string | null }
 
+/** Conversations are per business: the same customer can text two businesses' numbers. */
 function conversation(key: string): Conversation {
   const row = one("SELECT * FROM sms_conversations WHERE phone = ?", key);
   return row ? { ...row, state: JSON.parse(row.state) } as Conversation : { phone: key, business_id: null, booking_id: null, state: {}, chat_session_id: null };
@@ -36,11 +38,11 @@ function saveConversation(c: Conversation) {
   );
 }
 
-function logInbound(from: string, body: string, businessId: string | null, bookingId: string | null, audience: "customer" | "admin") {
+function logInbound(business: Row, from: string, body: string, bookingId: string | null, audience: "customer" | "admin") {
   run(
     `INSERT INTO sms_messages (id, business_id, booking_id, direction, audience, kind, to_phone, from_phone, body, status)
      VALUES (?,?,?,'inbound',?,'reply',?,?,?,'received')`,
-    newId("sms"), businessId, bookingId, audience, platformFromNumber(), from, body,
+    newId("sms"), business.id, bookingId, audience, smsFrom(business), from, body,
   );
 }
 
@@ -50,21 +52,24 @@ const activeStatuses = "('confirmed','pending_payment')";
  * The booking a customer's text is about: the one in the latest text we sent them
  * (that's what they're replying to), else the conversation's booking, else their next one.
  */
-function bookingForPhone(phone: string, convo: Conversation): Row | undefined {
+function bookingForPhone(businessId: string, phone: string, convo: Conversation): Row | undefined {
   const now = DateTime.utc().toISO();
   const lastTexted = one(
     `SELECT b.* FROM sms_messages m JOIN bookings b ON b.id = m.booking_id
-      WHERE m.to_phone = ? AND m.direction = 'outbound' AND m.audience = 'customer' AND m.status NOT IN ('skipped','failed')
+      WHERE m.business_id = ? AND m.to_phone = ? AND m.direction = 'outbound' AND m.audience = 'customer' AND m.status NOT IN ('skipped','failed')
         AND b.status IN ${activeStatuses} AND b.starts_at > ?
       ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1`,
-    phone, now,
+    businessId, phone, now,
   );
   if (lastTexted) return lastTexted;
   if (convo.booking_id) {
-    const b = one(`SELECT * FROM bookings WHERE id = ? AND status IN ${activeStatuses} AND starts_at > ?`, convo.booking_id, now);
+    const b = one(`SELECT * FROM bookings WHERE id = ? AND business_id = ? AND status IN ${activeStatuses} AND starts_at > ?`, convo.booking_id, businessId, now);
     if (b) return b;
   }
-  return one(`SELECT * FROM bookings WHERE customer_phone = ? AND status IN ${activeStatuses} AND starts_at > ? ORDER BY starts_at LIMIT 1`, phone, now);
+  return one(
+    `SELECT * FROM bookings WHERE business_id = ? AND customer_phone = ? AND status IN ${activeStatuses} AND starts_at > ? ORDER BY starts_at LIMIT 1`,
+    businessId, phone, now,
+  );
 }
 
 /** Up to three new times for the same service and staff, spread across different days where possible. */
@@ -87,43 +92,40 @@ async function rescheduleOptions(b: Row, business: Row) {
 
 const fmt = (iso: string, zone: string) => DateTime.fromISO(iso).setZone(zone).toFormat("ccc LLL d, h:mm a");
 
-/** Handles one inbound text and sends the reply. Returns the messages sent (for the simulator and tests). */
-export async function handleInboundSms(fromRaw: string, bodyRaw: string): Promise<Row[]> {
+/** Handles one text to a business's number and sends the reply. Returns the messages sent (for the simulator and tests). */
+export async function handleInboundSms(business: Row, fromRaw: string, bodyRaw: string): Promise<Row[]> {
   const from = normalizePhone(fromRaw) ?? fromRaw;
   const body = bodyRaw.trim();
   const word = body.toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
 
   if (OPT_OUT.has(word)) {
-    run("INSERT OR IGNORE INTO sms_opt_outs (phone) VALUES (?)", from);
-    logInbound(from, body, null, null, "customer");
+    run("INSERT OR IGNORE INTO business_sms_opt_outs (business_id, phone) VALUES (?,?)", business.id, from);
+    logInbound(business, from, body, null, "customer");
     return []; // Twilio sends the carrier-required opt-out confirmation itself.
   }
   if (OPT_IN.has(word)) {
-    run("DELETE FROM sms_opt_outs WHERE phone = ?", from);
-    logInbound(from, body, null, null, "customer");
+    run("DELETE FROM business_sms_opt_outs WHERE business_id = ? AND phone = ?", business.id, from);
+    logInbound(business, from, body, null, "customer");
     return [];
   }
+  if (business.suspended) return [];
 
-  const adminBusinesses = all("SELECT * FROM businesses WHERE sms_admin_phone = ? AND suspended = 0", from);
-  if (adminBusinesses.length) return handleAdminText(from, body, word, adminBusinesses);
-  return handleCustomerText(from, body, word);
+  if (business.sms_admin_phone === from) return handleAdminText(business, from, body, word);
+  return handleCustomerText(business, from, body, word);
 }
 
-async function handleCustomerText(from: string, body: string, word: string): Promise<Row[]> {
-  const convo = conversation(from);
-  const booking = bookingForPhone(from, convo);
+async function handleCustomerText(business: Row, from: string, body: string, word: string): Promise<Row[]> {
+  const convo = conversation(`${business.id}:${from}`);
+  const booking = bookingForPhone(business.id, from, convo);
   if (!booking) {
-    logInbound(from, body, convo.business_id, null, "customer");
-    const business = convo.business_id ? one("SELECT * FROM businesses WHERE id = ?", convo.business_id) : undefined;
-    if (!business) return []; // Unknown number and no business to reply as.
+    logInbound(business, from, body, null, "customer");
     return [await sendSms({
       business, to: from, kind: "reply", audience: "customer",
       body: `We couldn't find an upcoming appointment for this number. Book online: ${config.webUrl}/b/${business.slug}`,
     })];
   }
 
-  const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id)!;
-  logInbound(from, body, business.id, booking.id, "customer");
+  logInbound(business, from, body, booking.id, "customer");
   convo.business_id = business.id;
   convo.booking_id = booking.id;
   const actor = { label: `sms:${from}` };
@@ -190,11 +192,9 @@ async function handleCustomerText(from: string, body: string, word: string): Pro
   return reply(`${business.name}: Reply C to confirm, R to reschedule, or X to cancel your ${fmt(booking.starts_at, business.timezone)} appointment.${callUs}`, "menu");
 }
 
-async function handleAdminText(from: string, body: string, word: string, businesses: Row[]): Promise<Row[]> {
-  const key = `admin:${from}`;
-  const convo = conversation(key);
-  const business = businesses.find((b) => b.id === convo.business_id) ?? businesses[0];
-  logInbound(from, body, business.id, null, "admin");
+async function handleAdminText(business: Row, from: string, body: string, word: string): Promise<Row[]> {
+  const convo = conversation(`admin:${business.id}:${from}`);
+  logInbound(business, from, body, null, "admin");
   convo.business_id = business.id;
   const reply = async (text: string, kind = "admin_reply") => {
     saveConversation(convo);

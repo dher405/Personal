@@ -11,6 +11,7 @@ import { AiSettings } from "./AiSettings";
 import { Billing } from "./Billing";
 import { Settings } from "./Settings";
 import { SmsSettings } from "./SmsSettings";
+import { EmailSettings } from "./EmailSettings";
 import { Embed } from "./Embed";
 import { Calendars } from "./Calendars";
 
@@ -36,7 +37,7 @@ export function AdminHome() {
 
 const tabs = [
   ["", "Dashboard"], ["bookings", "Bookings"], ["services", "Services & prices"], ["staff", "Staff & hours"],
-  ["payments", "Payments"], ["sms", "Text messages"], ["calendars", "Calendar sync"], ["ai", "AI assistant"], ["billing", "Plan & billing"], ["settings", "Settings"], ["website", "Add to website"],
+  ["payments", "Payments"], ["email", "Email"], ["sms", "Text messages"], ["calendars", "Calendar sync"], ["ai", "AI assistant"], ["billing", "Plan & billing"], ["settings", "Settings"], ["website", "Add to website"],
 ];
 
 /** Shown on every admin tab from 80% of an allowance, so a business is warned well before it runs out. */
@@ -87,6 +88,7 @@ export function AdminLayout({ basePath, extraTabs = [], embedded = false, header
           <Route path="services" element={<Services />} />
           <Route path="staff" element={<Staff />} />
           <Route path="payments" element={<Payments />} />
+          <Route path="email" element={<EmailSettings />} />
           <Route path="sms" element={<SmsSettings />} />
           <Route path="ai" element={<AiSettings />} />
           <Route path="billing" element={<Billing />} />

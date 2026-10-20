@@ -1,18 +1,15 @@
 import { DateTime } from "luxon";
 import { config } from "../config.js";
 import { all, newId, one, run, Row } from "../db.js";
-import { checkAlerts, hasCapacity } from "./usage.js";
+import { channelsFor, smsConfigured, smsFrom, twilioWebhookUrls, type SmsChannel } from "./channels.js";
 
 /**
- * Outbound texting. Uses Twilio when TWILIO_* is configured; otherwise messages
- * are recorded as "simulated" so the whole flow can be tried locally from the
- * admin message log.
+ * Outbound texting, always through the business's own Twilio account (Admin → Text messages).
+ * A business in test mode has its texts recorded as "simulated" so the whole flow can be tried
+ * from the admin message log without sending anything.
  */
 
 export type Audience = "customer" | "admin" | "staff";
-
-export const smsLive = () => !!(config.twilio.accountSid && config.twilio.authToken && (config.twilio.messagingServiceSid || config.twilio.fromNumber));
-export const platformFromNumber = () => config.twilio.fromNumber || config.twilio.messagingServiceSid || "+15550000000";
 
 /** Best-effort E.164 normalisation: "(555) 010-2020" → "+15550102020". Returns null when it can't be a phone number. */
 export function normalizePhone(input: string | null | undefined): string | null {
@@ -20,32 +17,28 @@ export function normalizePhone(input: string | null | undefined): string | null 
   const trimmed = input.trim();
   const digits = trimmed.replace(/\D/g, "");
   if (trimmed.startsWith("+")) return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
-  if (digits.length === 10 && config.twilio.defaultCountryCode === "1") return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1") && config.twilio.defaultCountryCode === "1") return `+${digits}`;
-  if (digits.length >= 8 && digits.length <= 15) return `+${config.twilio.defaultCountryCode}${digits}`;
+  if (digits.length === 10 && config.smsDefaultCountryCode === "1") return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1") && config.smsDefaultCountryCode === "1") return `+${digits}`;
+  if (digits.length >= 8 && digits.length <= 15) return `+${config.smsDefaultCountryCode}${digits}`;
   return null;
 }
 
-export const isOptedOut = (phone: string) => !!one("SELECT 1 FROM sms_opt_outs WHERE phone = ?", phone);
+/** STOP applies to the business whose number they replied to. */
+export const isOptedOut = (businessId: string, phone: string) =>
+  !!one("SELECT 1 FROM business_sms_opt_outs WHERE business_id = ? AND phone = ?", businessId, phone);
 
-export function smsUsedThisMonth(businessId: string) {
-  return one<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM sms_messages WHERE business_id = ? AND direction = 'outbound'
-       AND status NOT IN ('failed','skipped') AND created_at >= datetime('now','start of month')`,
-    businessId,
-  )!.n;
-}
+export const twilioAuth = (c: SmsChannel) => `Basic ${Buffer.from(`${c.accountSid}:${c.authToken}`).toString("base64")}`;
 
-async function twilioSend(to: string, body: string) {
-  const { accountSid, authToken, messagingServiceSid, fromNumber } = config.twilio;
+async function twilioSend(businessId: string, c: SmsChannel, to: string, body: string) {
+  const { accountSid, messagingServiceSid, fromNumber } = c;
   const form = new URLSearchParams({ To: to, Body: body });
   if (messagingServiceSid) form.set("MessagingServiceSid", messagingServiceSid);
-  else form.set("From", fromNumber);
-  form.set("StatusCallback", `${config.apiUrl}/api/webhooks/twilio/status`);
+  else form.set("From", fromNumber!);
+  form.set("StatusCallback", twilioWebhookUrls(businessId).status);
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+      Authorization: twilioAuth(c),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: form,
@@ -75,30 +68,25 @@ export async function sendSms(opts: SendOptions): Promise<Row> {
       `INSERT INTO sms_messages (id, business_id, booking_id, direction, audience, kind, to_phone, from_phone, body, status, provider_sid, error)
        VALUES (?,?,?,'outbound',?,?,?,?,?,?,?,?)`,
       id, opts.business.id, opts.bookingId ?? null, opts.audience, opts.kind, to ?? String(opts.to ?? ""),
-      platformFromNumber(), opts.body, status, extra.sid ?? null, extra.error ?? null,
+      smsFrom(opts.business), opts.body, status, extra.sid ?? null, extra.error ?? null,
     );
     return one("SELECT * FROM sms_messages WHERE id = ?", id)!;
   };
 
   if (!to) return record("skipped", { error: "Invalid phone number" });
-  if (!opts.force && !opts.business.sms_enabled) return record("skipped", { error: "SMS disabled for this business" });
-  if (isOptedOut(to)) return record("skipped", { error: "Recipient replied STOP" });
-  if (!hasCapacity(opts.business, "sms")) {
-    return record("skipped", { error: "Monthly text allowance is used up (buy more or upgrade under Plan & billing)" });
-  }
-  let sent: Row;
-  if (!smsLive()) {
+  if (!smsConfigured(opts.business)) return record("skipped", { error: "Texting isn't set up (connect your Twilio account under Text messages)" });
+  if (!opts.force && !opts.business.sms_enabled) return record("skipped", { error: "Text messages are switched off" });
+  if (isOptedOut(opts.business.id, to)) return record("skipped", { error: "Recipient replied STOP" });
+  const channel = channelsFor(opts.business).sms;
+  if (channel.provider === "test") {
     if (process.env.NODE_ENV !== "test") console.log(`[sms:simulated] → ${to}: ${opts.body}`);
-    sent = record("simulated");
-  } else {
-    try {
-      sent = record("sent", { sid: await twilioSend(to, opts.body) });
-    } catch (err) {
-      return record("failed", { error: (err as Error).message });
-    }
+    return record("simulated");
   }
-  checkAlerts(opts.business, "sms").catch((err) => console.error("usage alert failed", err));
-  return sent;
+  try {
+    return record("sent", { sid: await twilioSend(opts.business.id, channel, to, opts.body) });
+  } catch (err) {
+    return record("failed", { error: (err as Error).message });
+  }
 }
 
 // ---------- Message templates ----------

@@ -3,6 +3,71 @@ import { DateTime } from "luxon";
 import { api } from "../../api";
 import { useAction, useApi } from "../../hooks";
 import { useBusiness } from "./AdminLayout";
+import { Copy, Steps, savedHint } from "../../components/Setup";
+
+/** The business's own Twilio account: every text to its customers (and to the owner and staff) comes from its number. */
+function TwilioAccount({ onChange }: { onChange: () => void }) {
+  const { biz, reloadBiz } = useBusiness();
+  const { data, reload } = useApi<any>(`/admin/${biz.id}/communications`);
+  const [f, setF] = useState<any>(null);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const action = useAction();
+  if (!data) return null;
+  const t = data.sms;
+  const form = f ?? { provider: t.provider === "none" ? "twilio" : t.provider, accountSid: t.accountSid, authToken: "", messagingServiceSid: t.messagingServiceSid, fromNumber: t.fromNumber };
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...form, [k]: e.target.value });
+  const save = (provider = form.provider) => action.run(async () => {
+    setResult(null);
+    await api(`/admin/${biz.id}/communications/sms`, { method: "PUT", body: { ...form, provider } });
+    setF(null); reload(); reloadBiz(); onChange();
+  });
+  const check = () => action.run(async () => {
+    try { setResult(await api(`/admin/${biz.id}/communications/sms/check`, { method: "POST" })); } catch (err) { setResult({ ok: false, message: (err as Error).message }); }
+  });
+
+  return (
+    <form className="card stack" onSubmit={(e) => { e.preventDefault(); save(); }}>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2 style={{ margin: 0 }}>Your Twilio account</h2>
+        <span className={`badge ${t.configured ? "ok" : "warn"}`}>{t.configured ? (t.live ? `Connected${t.fromNumber ? `: ${t.fromNumber}` : ""}` : "Test mode") : "Not connected: texting is hidden"}</span>
+      </div>
+      <p className="small muted">
+        Texts to your customers come from <b>your own Twilio number</b>, and Twilio bills you directly for them. Until it's connected, customers aren't
+        offered texts anywhere (booking page, website calendar, app or chat).
+      </p>
+      {action.error && <div className="error">{action.error}</div>}
+      <label>Texting
+        <select value={form.provider} onChange={set("provider")}>
+          <option value="twilio">My Twilio account</option>
+          {data.testModeAllowed && <option value="test">Test mode (texts shown in the log, never sent)</option>}
+        </select>
+      </label>
+      {form.provider === "twilio" && (
+        <div className="stack">
+          <Steps>
+            <li>Sign up at <a href="https://www.twilio.com/try-twilio" target="_blank" rel="noreferrer">twilio.com</a> and buy a phone number that can send SMS.</li>
+            <li>US numbers must be registered before carriers deliver texts: in the Twilio Console, complete <b>A2P 10DLC</b> registration for a local number, or <b>toll-free verification</b> for a toll-free number. This can take a few days.</li>
+            <li>On the <a href="https://console.twilio.com" target="_blank" rel="noreferrer">Twilio Console</a> home page, copy your <b>Account SID</b> and <b>Auth token</b>.</li>
+            <li>Under <b>Phone Numbers → Manage → Active numbers</b>, open your number. Under <b>Messaging → A message comes in</b>, choose Webhook, paste the address below, set HTTP POST, and save. (Using a Messaging Service instead? Put it in the service's Integration settings.)</li>
+          </Steps>
+          <label>Incoming messages webhook<Copy value={t.webhooks.incoming} /></label>
+          <div className="form-grid">
+            <label>Account SID<input value={form.accountSid} onChange={set("accountSid")} placeholder="AC…" /></label>
+            <label>Auth token<input type="password" autoComplete="off" value={form.authToken} onChange={set("authToken")} placeholder={savedHint(t.authToken, "")} /></label>
+            <label>Your Twilio phone number<input type="tel" value={form.fromNumber} onChange={set("fromNumber")} placeholder="+15551234567" /></label>
+            <label>Messaging Service SID (optional)<input value={form.messagingServiceSid} onChange={set("messagingServiceSid")} placeholder="MG… (used instead of the number)" /></label>
+          </div>
+        </div>
+      )}
+      {result && <div className={result.ok ? "notice" : "error"}>{result.message}</div>}
+      <div className="row">
+        <button className="primary" disabled={action.busy}>Save Twilio settings</button>
+        <button type="button" disabled={action.busy || !t.configured} title={t.configured ? "" : "Save first"} onClick={check}>Check connection</button>
+        {t.provider !== "none" && <button type="button" disabled={action.busy} onClick={() => confirm("Disconnect Twilio? Texting will switch off and customers won't be offered texts.") && save("none")}>Disconnect</button>}
+      </div>
+    </form>
+  );
+}
 
 const statusBadge: Record<string, string> = { sent: "ok", delivered: "ok", simulated: "", received: "", queued: "", skipped: "warn", failed: "bad", undelivered: "bad" };
 
@@ -20,7 +85,7 @@ export function SmsSettings() {
   const [sim, setSim] = useState({ from: "", body: "" });
   const [saved, setSaved] = useState(false);
   const action = useAction();
-  const usage = data?.usage ?? biz.sms_usage;
+  const configured = data?.configured ?? biz.sms_configured;
 
   const save = () => action.run(async () => {
     await api(`/admin/${biz.id}`, {
@@ -37,13 +102,12 @@ export function SmsSettings() {
 
   return (
     <div className="stack">
+      <TwilioAccount onChange={reload} />
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
-        <div className="card stack">
+        <fieldset className="card stack" disabled={!configured} style={{ border: undefined, margin: 0, opacity: configured ? 1 : 0.55 }}>
           <h2>Text reminders & alerts</h2>
-          <p className="small muted">
-            {usage.used} of {usage.allowance} texts used this month on your plan.{" "}
-            {usage.live ? "Sending through Twilio." : "Test mode: texts are not really sent. They appear in the log below so you can try everything out."}
-          </p>
+          {!configured && <p className="small muted">Connect your Twilio account above to use these.</p>}
+          {configured && !data?.live && <p className="small muted">Test mode: texts are not really sent. They appear in the log below so you can try everything out.</p>}
           {action.error && <div className="error">{action.error}</div>}
           <label className="inline"><input type="checkbox" checked={form.sms_enabled} onChange={(e) => setForm({ ...form, sms_enabled: e.target.checked })} /> Send text messages</label>
           <label>Remind customers this many hours before (comma-separated)
@@ -73,9 +137,9 @@ export function SmsSettings() {
             <button disabled={action.busy || !biz.sms_admin_phone} onClick={() => action.run(async () => { await api(`/admin/${biz.id}/sms/test`, { body: {} }); reload(); })}>Send me a test text</button>
             {saved && <span className="notice small">Saved</span>}
           </div>
-        </div>
+        </fieldset>
 
-        {!usage.live && (
+        {configured && !data?.live && (
           <div className="card stack">
             <h2>Try a reply</h2>
             <p className="small muted">Pretend a phone texted your number. Use a customer's phone from a booking (they must have agreed to texts), or your own number to try the admin commands.</p>

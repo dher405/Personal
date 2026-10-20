@@ -61,7 +61,7 @@ export function Bookings() {
                   <td>
                     <div className="row">
                       <button onClick={() => setEditing(b)}>Edit / move</button>
-                      {b.status === "confirmed" && b.smsOptIn && biz.sms_enabled ? (
+                      {b.status === "confirmed" && b.smsOptIn && biz.sms_ready ? (
                         <button onClick={() => action.run(async () => { await api(`/admin/${biz.id}/bookings/${b.id}/sms-reminder`, { method: "POST" }); reload(); })}>Text reminder</button>
                       ) : null}
                       {b.status === "confirmed" && <button onClick={() => setStatus(b, "completed")}>Done</button>}
@@ -181,7 +181,7 @@ function NewBooking({ onClose }: { onClose: () => void }) {
           <label>Phone<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
           <label>Custom price<input type="number" step="0.01" placeholder={service ? (service.price_cents / 100).toFixed(2) : ""} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></label>
         </div>
-        {biz.sms_enabled ? (
+        {biz.sms_ready ? (
           <label className="inline small"><input type="checkbox" checked={form.smsOptIn} disabled={!form.phone} onChange={(e) => setForm({ ...form, smsOptIn: e.target.checked })} /> Customer agreed to text reminders</label>
         ) : null}
         <div className="row"><button className="primary" disabled={!slot || !form.name || !form.email || action.busy} onClick={save}>Create booking</button><button onClick={onClose}>Cancel</button></div>

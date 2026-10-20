@@ -54,9 +54,9 @@ test("super admin saves keys on the Settings page; they work at once, encrypted,
 test("settings: validation, audit without values, super admin only", async () => {
   assert.equal((await api("PUT", "/api/super/settings", { values: { NOT_A_SETTING: "x" } })).status, 400);
   assert.equal((await api("PUT", "/api/super/settings", { values: { PAYPAL_ENV: "production" } })).status, 400);
-  await api("PUT", "/api/super/settings", { values: { TWILIO_AUTH_TOKEN: "tok-123456789" } });
+  await api("PUT", "/api/super/settings", { values: { STRIPE_WEBHOOK_SECRET: "tok-123456789" } });
   const entry = one("SELECT details FROM audit_log WHERE action = 'settings.updated' ORDER BY rowid DESC LIMIT 1")!;
-  assert.ok(entry.details.includes("TWILIO_AUTH_TOKEN") && !entry.details.includes("tok-123456789"));
+  assert.ok(entry.details.includes("STRIPE_WEBHOOK_SECRET") && !entry.details.includes("tok-123456789"));
   assert.equal((await api("GET", "/api/super/settings", undefined, owner)).status, 403);
   assert.equal((await api("PUT", "/api/super/settings", { values: { RESEND_API_KEY: "x" } }, owner)).status, 403);
   const t = await api("POST", "/api/super/settings/test/stripe");

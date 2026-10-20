@@ -3,18 +3,8 @@ import { DateTime } from "luxon";
 import { api, money } from "../../api";
 import { useAction, useApi } from "../../hooks";
 import { useBusiness } from "./AdminLayout";
+import { Copy, Steps, savedHint } from "../../components/Setup";
 
-function Copy({ value }: { value: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <div className="row" style={{ flexWrap: "nowrap" }}>
-      <input readOnly value={value} onFocus={(e) => e.target.select()} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12 }} />
-      <button type="button" onClick={() => { navigator.clipboard?.writeText(value); setDone(true); setTimeout(() => setDone(false), 1500); }}>{done ? "Copied" : "Copy"}</button>
-    </div>
-  );
-}
-
-const Steps = ({ children }: { children: React.ReactNode }) => <ol className="small muted" style={{ margin: 0, paddingLeft: 20 }}>{children}</ol>;
 
 export function Payments() {
   const { biz, reloadBiz } = useBusiness();
@@ -28,8 +18,7 @@ export function Payments() {
   const [test, setTest] = useState<{ ok: boolean; message: string } | null>(null);
   const action = useAction();
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
-  // Saved secrets are never sent back; the box shows the last 4 characters, and leaving it blank keeps the saved value.
-  const saved = (preview: string, placeholder: string) => (preview ? `${preview} saved` : placeholder);
+  const saved = savedHint;
 
   const save = () => action.run(async () => {
     setTest(null);

@@ -16,7 +16,9 @@ import { keepPlan, startPlanCheckout, openBillingPortal } from "../lib/platformB
 import { chat } from "../ai/chat.js";
 import { aiChatEnabled } from "./public.js";
 import { config } from "../config.js";
-import { normalizePhone, sendSms, smsLive, templates } from "../lib/sms.js";
+import { normalizePhone, sendSms, templates, twilioAuth } from "../lib/sms.js";
+import { sendBusinessEmail } from "../lib/email.js";
+import { channelsFor, emailReady, saveChannels, smsConfigured, smsLive, smsReady, testModeAllowed, twilioWebhookUrls, type Channels } from "../lib/channels.js";
 import { handleInboundSms } from "../lib/smsInbound.js";
 import { parseReminderHours } from "../lib/reminders.js";
 import { buyPacks, currentPeriod, meter, usageFor } from "../lib/usage.js";
@@ -46,14 +48,17 @@ function ownedBy<T extends Record<string, any>>(row: T | undefined, businessId: 
 // ---------- Business settings ----------
 
 function publicSettings(b: Record<string, any>) {
-  const { payment_config, ...rest } = b;
+  const { payment_config, comms_config, ...rest } = b;
   const cfg = decryptJson<Record<string, any>>(payment_config);
   return {
     ...rest,
     payment_summary: paymentSummary(b, cfg),
     plan_details: getPlan(b.plan),
     ai_chat_active: aiChatEnabled(b),
-    sms_usage: { used: meter(b, "sms").used, allowance: meter(b, "sms").limit, live: smsLive() },
+    // Customer communications go only through the business's own accounts (Email and Text messages tabs).
+    email_ready: emailReady(b),
+    sms_configured: smsConfigured(b),
+    sms_ready: smsReady(b),
     usage: usageFor(b),
   };
 }
@@ -72,6 +77,7 @@ adminRouter.patch("/", h((req) => {
     sms_staff_reminder_min: z.number().int().min(5).max(24 * 60).nullable(),
   }).partial(), req.body);
   if (body.timezone && !DateTime.local().setZone(body.timezone).isValid) throw badRequest("Unknown timezone");
+  if (body.sms_enabled && !smsConfigured(business(req))) throw badRequest("Connect your Twilio account first, then switch text messages on");
   if (body.sms_reminder_hours !== undefined) body.sms_reminder_hours = parseReminderHours(body.sms_reminder_hours).join(",");
   if (body.sms_admin_phone) {
     const phone = normalizePhone(body.sms_admin_phone);
@@ -445,10 +451,116 @@ adminRouter.post("/assistant", h(async (req) => {
   return chat({ kind: "admin", business: b, sessionId: body.sessionId, message: body.message, admin: req.user });
 }));
 
+// ---------- Customer communications: the business's own email and Twilio accounts ----------
+
+function commsSummary(b: Record<string, any>) {
+  const { email: e, sms: t } = channelsFor(b);
+  return {
+    testModeAllowed: testModeAllowed(),
+    email: {
+      provider: e.provider, ready: emailReady(b), fromName: e.fromName ?? "", fromEmail: e.fromEmail ?? "", replyTo: e.replyTo ?? "",
+      smtpHost: e.smtpHost ?? "", smtpPort: e.smtpPort ?? null, smtpSecurity: e.smtpSecurity ?? "", smtpUser: e.smtpUser ?? "",
+      smtpPass: mask(e.smtpPass), resendApiKey: mask(e.resendApiKey),
+    },
+    sms: {
+      provider: t.provider, configured: smsConfigured(b), live: smsLive(b),
+      accountSid: t.accountSid ?? "", authToken: mask(t.authToken), messagingServiceSid: t.messagingServiceSid ?? "", fromNumber: t.fromNumber ?? "",
+      webhooks: twilioWebhookUrls(b.id),
+    },
+  };
+}
+
+adminRouter.get("/communications", h((req) => ({
+  ...commsSummary(business(req)),
+  emails: all("SELECT * FROM email_messages WHERE business_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 100", bid(req)),
+})));
+
+adminRouter.put("/communications/email", h((req) => {
+  const body = parse(z.object({
+    provider: z.enum(["none", "smtp", "resend"]),
+    fromName: z.string().max(100).optional(), fromEmail: z.string().email().or(z.literal("")).optional(), replyTo: z.string().email().or(z.literal("")).optional(),
+    smtpHost: z.string().max(200).optional(), smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
+    smtpSecurity: z.enum(["ssl", "starttls"]).or(z.literal("")).optional(), smtpUser: z.string().max(200).optional(), smtpPass: z.string().max(500).optional(),
+    resendApiKey: z.string().max(200).optional(),
+  }), req.body);
+  const b = business(req);
+  const channels: Channels = channelsFor(b);
+  const saved = channels.email;
+  if (body.provider !== "none" && !body.fromEmail) throw badRequest("Enter the email address customers should get emails from");
+  channels.email = {
+    provider: body.provider, fromName: body.fromName?.trim() || undefined, fromEmail: body.fromEmail || undefined, replyTo: body.replyTo || undefined,
+    smtpHost: body.smtpHost?.trim() || undefined, smtpPort: body.smtpPort ?? undefined, smtpSecurity: body.smtpSecurity || undefined,
+    smtpUser: body.smtpUser?.trim() || undefined, smtpPass: keep(body.smtpPass, saved.smtpPass), resendApiKey: keep(body.resendApiKey, saved.resendApiKey),
+  };
+  saveChannels(b.id, channels);
+  audit(actor(req), b.id, "communications.email_updated", { provider: body.provider, fromEmail: body.fromEmail });
+  return commsSummary(business(req));
+}));
+
+adminRouter.put("/communications/sms", h((req) => {
+  const body = parse(z.object({
+    provider: z.enum(["none", "twilio", "test"]),
+    accountSid: z.string().max(64).optional(), authToken: z.string().max(128).optional(),
+    messagingServiceSid: z.string().max(64).optional(), fromNumber: z.string().max(32).optional(),
+  }), req.body);
+  if (body.provider === "test" && !testModeAllowed()) throw badRequest("Test mode isn't available on this platform");
+  const b = business(req);
+  const channels: Channels = channelsFor(b);
+  const fromNumber = body.fromNumber?.trim() ? normalizePhone(body.fromNumber) : undefined;
+  if (body.fromNumber?.trim() && !fromNumber) throw badRequest("The Twilio phone number isn't valid");
+  channels.sms = {
+    provider: body.provider, accountSid: body.accountSid?.trim() || undefined, authToken: keep(body.authToken, channels.sms.authToken),
+    messagingServiceSid: body.messagingServiceSid?.trim() || undefined, fromNumber: fromNumber ?? undefined,
+  };
+  saveChannels(b.id, channels);
+  // Without a working channel, texting is switched off so customers aren't offered it.
+  if (!smsConfigured(business(req))) run("UPDATE businesses SET sms_enabled = 0 WHERE id = ?", b.id);
+  audit(actor(req), b.id, "communications.sms_updated", { provider: body.provider, accountSid: body.accountSid, fromNumber });
+  return commsSummary(business(req));
+}));
+
+/** Sends a real email through the business's own account to whoever is signed in, so they can see it arrive. */
+adminRouter.post("/communications/email/test", h(async (req) => {
+  const b = business(req);
+  const to = parse(z.object({ to: z.string().email().optional() }), req.body ?? {}).to ?? req.user!.email;
+  if (!emailReady(b)) throw badRequest("Save your email settings first");
+  const msg = await sendBusinessEmail(b, {
+    kind: "test", to, subject: `Test email from ${b.name}`,
+    text: `This is a test from your Slotwise booking system.\n\nIf you can read this, customer emails for ${b.name} are set up: booking confirmations, changes and cancellations will be sent from ${channelsFor(b).email.fromEmail}.`,
+  });
+  if (msg.status !== "sent") throw badRequest(`The email wasn't sent: ${msg.error}`);
+  return { ok: true, message: `Sent to ${to}. Check that inbox (and its spam folder).` };
+}));
+
+/** Checks the Twilio credentials and that the number or Messaging Service belongs to the account. */
+adminRouter.post("/communications/sms/check", h(async (req) => {
+  const t = channelsFor(business(req)).sms;
+  if (t.provider === "test") return { ok: true, message: "Test mode: texts are recorded in the message log and never sent." };
+  if (t.provider !== "twilio" || !t.accountSid || !t.authToken) throw badRequest("Save your Twilio Account SID and Auth token first");
+  const get = async (path: string) => {
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}${path}`, { headers: { Authorization: twilioAuth(t) } });
+    return { ok: res.ok, status: res.status, json: await res.json().catch(() => ({})) as any };
+  };
+  const account = await get(".json");
+  if (!account.ok) throw badRequest(account.status === 401 ? "Twilio didn't accept that Account SID and Auth token" : account.json.message ?? `Twilio said ${account.status}`);
+  let sender = "";
+  if (t.messagingServiceSid) {
+    const res = await fetch(`https://messaging.twilio.com/v1/Services/${t.messagingServiceSid}`, { headers: { Authorization: twilioAuth(t) } });
+    if (!res.ok) throw badRequest(`Connected to "${account.json.friendly_name}", but Messaging Service ${t.messagingServiceSid} wasn't found in that account`);
+    sender = ` using Messaging Service "${(await res.json() as any).friendly_name}"`;
+  } else if (t.fromNumber) {
+    const nums = await get(`/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(t.fromNumber)}`);
+    if (!nums.json.incoming_phone_numbers?.length) throw badRequest(`Connected to "${account.json.friendly_name}", but ${t.fromNumber} isn't a number in that account`);
+    sender = ` sending from ${t.fromNumber}`;
+  }
+  return { ok: true, message: `Connected to Twilio account "${account.json.friendly_name}"${sender}.` };
+}));
+
 // ---------- Text messages ----------
 
 adminRouter.get("/sms", h((req) => ({
-  usage: { used: meter(business(req), "sms").used, allowance: meter(business(req), "sms").limit, live: smsLive() },
+  configured: smsConfigured(business(req)),
+  live: smsLive(business(req)),
   messages: all("SELECT * FROM sms_messages WHERE business_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 200", bid(req)),
 })));
 
@@ -457,7 +569,9 @@ adminRouter.post("/sms/test", h(async (req) => {
   const b = business(req);
   const to = body.to ?? b.sms_admin_phone;
   if (!to) throw badRequest("Enter a phone number or set the admin alert phone first");
-  return sendSms({ business: b, to, body: `${b.name}: test message from Slotwise. Texting is set up.`, kind: "test", audience: "admin", force: true });
+  const msg = await sendSms({ business: b, to, body: `${b.name}: test message from Slotwise. Texting is set up.`, kind: "test", audience: "admin", force: true });
+  if (msg.status === "skipped" || msg.status === "failed") throw badRequest(msg.error ?? "Text not sent");
+  return msg;
 }));
 
 /** "Send reminder now" from the bookings screen. Only to customers who agreed to texts. */
@@ -469,10 +583,11 @@ adminRouter.post("/bookings/:id/sms-reminder", h(async (req) => {
   return msg;
 }));
 
-/** Pretend a phone texted us — lets admins try two-way texting before Twilio is connected. */
+/** Pretend a phone texted the business — lets admins try two-way texting in test mode. */
 adminRouter.post("/sms/simulate", h(async (req) => {
-  if (config.isProduction && smsLive()) throw forbidden("The simulator is only available before Twilio is connected");
+  const b = business(req);
+  if (channelsFor(b).sms.provider !== "test" || !testModeAllowed()) throw forbidden("The reply simulator only works in test mode");
   const body = parse(z.object({ from: z.string().min(5), body: z.string().min(1).max(1600) }), req.body);
-  const replies = await handleInboundSms(body.from, body.body);
+  const replies = await handleInboundSms(b, body.from, body.body);
   return { replies };
 }));

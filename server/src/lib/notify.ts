@@ -1,7 +1,8 @@
 import { DateTime } from "luxon";
 import { config } from "../config.js";
 import { all, one, type Row } from "../db.js";
-import { sendEmail } from "./email.js";
+import { sendBusinessEmail, sendEmail } from "./email.js";
+import { smsReady } from "./channels.js";
 import { addToCalendarLinks, inviteIcs } from "./ics.js";
 import { syncBookingToCalendars } from "./calendarSync.js";
 import { sendSms, templates } from "./sms.js";
@@ -45,7 +46,7 @@ export function notify(kind: NotificationKind, booking: Row, by: ChangedBy = "cu
 
 export async function dispatchSms(kind: NotificationKind, booking: Row, by: ChangedBy) {
   const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id);
-  if (!business?.sms_enabled) return;
+  if (!business || !smsReady(business)) return;
 
   const text = customerText[kind];
   // Changes made by text already get a direct reply from the SMS handler, so skip the duplicate.
@@ -63,7 +64,7 @@ const emailSubjects: Partial<Record<NotificationKind, string>> = {
   booking_cancelled: "Your booking is cancelled",
 };
 
-/** Customer emails for confirmed / moved / cancelled bookings (sent through Resend or Postmark; logged otherwise). */
+/** Customer emails for confirmed / moved / cancelled bookings, sent from the business's own email account (Admin → Email). */
 export async function dispatchEmail(kind: NotificationKind, booking: Row) {
   const subject = emailSubjects[kind];
   if (!subject) return;
@@ -87,7 +88,8 @@ export async function dispatchEmail(kind: NotificationKind, booking: Row) {
     lines.push(`Add it to your calendar: the attached invite works in Gmail, Outlook and Apple Mail, or use Google Calendar ${links.google} or Outlook ${links.outlook}`);
   }
   if (business.phone) lines.push(`Questions? Call ${business.name} at ${business.phone}.`);
-  await sendEmail({
+  await sendBusinessEmail(business, {
+    kind, bookingId: booking.id,
     to: booking.customer_email,
     subject: `${subject}: ${service.name} with ${business.name}`,
     text: lines.join("\n\n"),

@@ -17,7 +17,8 @@ export function Dashboard() {
     { done: (staff?.length ?? 0) > 0 && staff!.some((s) => s.hours.length), label: "Add staff and their weekly hours", to: "staff" },
     { done: (services?.length ?? 0) > 0, label: "Add services / lessons with prices", to: "services" },
     { done: biz.payment_provider !== "none", label: "Connect a payment provider (optional)", to: "payments" },
-    { done: !!biz.sms_enabled, label: "Turn on text reminders (optional)", to: "sms" },
+    { done: !!biz.email_ready, label: "Connect your email so customers get confirmations from you", to: "email" },
+    { done: !!biz.sms_ready, label: "Connect your Twilio account for text reminders (optional)", to: "sms" },
     { done: !!biz.ai_enabled, label: "Turn on the AI booking assistant (optional)", to: "ai" },
   ];
 

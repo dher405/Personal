@@ -116,7 +116,6 @@ export function Billing() {
               <li>Up to {p.maxStaff} staff</li>
               <li>{p.aiChat ? "AI booking chat + admin assistant" : "No AI chat"}</li>
               <li><b>{p.bookingsPerMonth.toLocaleString()} bookings / month</b></li>
-              <li>{p.smsPerMonth.toLocaleString()} text messages / month</li>
               {p.aiChat && <li>{p.aiMessagesPerMonth.toLocaleString()} AI assistant messages / month</li>}
             </ul>
             {p.id === biz.plan

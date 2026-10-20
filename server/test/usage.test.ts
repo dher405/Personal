@@ -121,14 +121,15 @@ test("a paid booking counts only once payment completes", async () => {
 
 test("super admin: edit packs, grant credits, see each business's usage", async () => {
   const packs = (await api("GET", "/api/super/packs", undefined, superToken)).body;
-  packs.find((p: any) => p.metric === "sms").priceCents = 700;
-  assert.equal((await api("PUT", "/api/super/packs", packs, superToken)).body.find((p: any) => p.metric === "sms").priceCents, 700);
-  const granted = await api("POST", `/api/super/businesses/${bid}/credits`, { metric: "sms", quantity: 40 }, superToken);
-  assert.equal(granted.body.find((m: any) => m.metric === "sms").extra, 40);
+  packs.find((p: any) => p.metric === "ai").priceCents = 700;
+  assert.equal((await api("PUT", "/api/super/packs", packs, superToken)).body.find((p: any) => p.metric === "ai").priceCents, 700);
+  const extraBefore = meter(one("SELECT * FROM businesses WHERE id = ?", bid)!, "ai").extra;
+  const granted = await api("POST", `/api/super/businesses/${bid}/credits`, { metric: "ai", quantity: 40 }, superToken);
+  assert.equal(granted.body.find((m: any) => m.metric === "ai").extra, extraBefore + 40);
   const list = (await api("GET", "/api/super/businesses", undefined, superToken)).body;
   const row = list.find((b: any) => b.id === bid);
-  assert.deepEqual(row.usage.map((m: any) => m.metric), ["bookings", "sms", "ai"]);
-  assert.equal((await api("POST", `/api/super/businesses/${bid}/credits`, { metric: "sms", quantity: 5 }, owner)).status, 403);
+  assert.deepEqual(row.usage.map((m: any) => m.metric), ["bookings", "ai"]);
+  assert.equal((await api("POST", `/api/super/businesses/${bid}/credits`, { metric: "ai", quantity: 5 }, owner)).status, 403);
 });
 
 test("moving to Starter keeps the paid plan until the paid period ends", async () => {

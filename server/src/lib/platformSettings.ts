@@ -26,7 +26,7 @@ export const SETTING_GROUPS: SettingGroup[] = [
   },
   {
     id: "email", title: "Email", testable: true,
-    description: "Sends booking confirmations with calendar invites, password resets, and usage alerts. Set up one provider: Resend (resend.com → API Keys) or Postmark (Server → API Tokens). Verify your sending domain with them first.",
+    description: "Emails from Slotwise to business owners: password resets, new-booking alerts, and usage and billing alerts. (Emails to a business's customers go out from that business's own email account, set up on its Email tab.) Set up one provider: Resend (resend.com → API Keys) or Postmark (Server → API Tokens). Verify your sending domain with them first.",
     fields: [
       { name: "EMAIL_FROM", label: "From address", placeholder: "Slotwise <no-reply@yourdomain.com>" },
       { name: "RESEND_API_KEY", label: "Resend API key", secret: true, placeholder: "re_…" },
@@ -34,16 +34,11 @@ export const SETTING_GROUPS: SettingGroup[] = [
     ],
   },
   {
-    id: "twilio", title: "Text messages (Twilio)", testable: true,
-    description: "Reminders, alerts and two-way replies. From console.twilio.com: Account SID and Auth token on the home page; a Messaging Service under Messaging → Services. US numbers need A2P 10DLC or toll-free registration before carriers deliver.",
+    id: "phones", title: "Phone numbers",
+    description: "Each business texts its customers from its own Twilio account (its Text messages tab). This only sets how phone numbers typed without a country code are read.",
     fields: [
-      { name: "TWILIO_ACCOUNT_SID", label: "Account SID", placeholder: "AC…" },
-      { name: "TWILIO_AUTH_TOKEN", label: "Auth token", secret: true },
-      { name: "TWILIO_MESSAGING_SERVICE_SID", label: "Messaging Service SID", placeholder: "MG…", help: "Recommended. Or fill in the From number instead." },
-      { name: "TWILIO_FROM_NUMBER", label: "From number", placeholder: "+15551234567" },
-      { name: "SMS_DEFAULT_COUNTRY_CODE", label: "Default country code", placeholder: "1", help: "Used for numbers typed without one (1 = US/Canada)" },
+      { name: "SMS_DEFAULT_COUNTRY_CODE", label: "Default country code", placeholder: "1", help: "1 = US/Canada, 44 = UK, 61 = Australia" },
     ],
-    urls: (api) => [{ label: "Incoming messages webhook (Messaging Service → Integration → Send a webhook, HTTP POST)", url: `${api}/api/webhooks/twilio/sms` }],
   },
   {
     id: "ai", title: "AI assistant (Anthropic)", testable: true,
@@ -152,13 +147,6 @@ export async function testSettings(group: string): Promise<{ ok: boolean; messag
       const account = await new Stripe(config.stripe.secretKey).accounts.retrieveCurrent();
       const mode = config.stripe.secretKey.startsWith("sk_live") ? "live" : "test";
       return { ok: true, message: `Connected to ${account.settings?.dashboard?.display_name ?? account.email ?? account.id} (${mode} mode)${account.charges_enabled ? "" : ". Note: this account can't take payments yet; finish activating it in Stripe"}` };
-    }
-    if (group === "twilio") {
-      const { accountSid, authToken } = config.twilio;
-      if (!accountSid || !authToken) return { ok: false, message: "Account SID and auth token are both needed" };
-      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}.json`, { headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}` } });
-      const json: any = await res.json();
-      return res.ok ? { ok: true, message: `Connected to Twilio account "${json.friendly_name}" (${json.status})` } : { ok: false, message: json.message ?? `Twilio said ${res.status}` };
     }
     if (group === "email") {
       if (config.email.resendApiKey) {

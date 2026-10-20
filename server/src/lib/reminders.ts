@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import { all, run } from "../db.js";
 import { agendaText, sendSms, templates } from "./sms.js";
+import { smsConfigured } from "./channels.js";
 
 /** "24,2" → [2, 24]. Ignores junk so a bad setting can't break the scheduler. */
 export function parseReminderHours(value: string): number[] {
@@ -16,6 +17,7 @@ export function parseReminderHours(value: string): number[] {
 export async function runReminders(now = DateTime.utc()) {
   let sent = 0;
   for (const business of all("SELECT * FROM businesses WHERE sms_enabled = 1 AND suspended = 0")) {
+    if (!smsConfigured(business)) continue;
     const hours = parseReminderHours(business.sms_reminder_hours);
     const maxH = hours.at(-1) ?? 0;
 

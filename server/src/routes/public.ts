@@ -11,6 +11,7 @@ import { meter } from "../lib/usage.js";
 import { aiAvailable, chat } from "../ai/chat.js";
 import { customerIcs } from "../lib/ics.js";
 import { rateLimit } from "../lib/rateLimit.js";
+import { smsReady } from "../lib/channels.js";
 
 export const publicRouter = Router();
 
@@ -37,7 +38,7 @@ publicRouter.get("/businesses/:slug", h((req) => {
     timezone: b.timezone, currency: b.currency, phone: b.phone, address: b.address,
     cancellationHours: b.cancellation_hours, requirePayment: !!b.require_payment && b.payment_provider !== "none",
     aiChat: aiChatEnabled(b),
-    smsEnabled: !!b.sms_enabled,
+    smsEnabled: smsReady(b),
     onlineBookingPaused: !roomFor(b, "bookings"),
     services: all("SELECT id, name, description, category, duration_min, price_cents, deposit_cents FROM services WHERE business_id = ? AND active = 1 ORDER BY category, name", b.id),
     staff: all(

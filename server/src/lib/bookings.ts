@@ -7,6 +7,7 @@ import { randomCode, randomToken } from "./crypto.js";
 import { badRequest, conflict, forbidden, notFound } from "./errors.js";
 import { changedBy, notify } from "./notify.js";
 import { normalizePhone } from "./sms.js";
+import { smsReady } from "./channels.js";
 import { addToCalendarLinks } from "./ics.js";
 import { hasCapacity, recordUse } from "./usage.js";
 import { HttpError } from "./errors.js";
@@ -113,7 +114,8 @@ export function createBooking(input: NewBooking, actor: Actor) {
       input.customer.phone ? normalizePhone(input.customer.phone) ?? input.customer.phone : null,
       start.toISO(), start.plus({ minutes: service.duration_min }).toISO(),
       needsPayment ? "pending_payment" : "confirmed", price, business.currency, input.notes ?? "", input.source,
-      Number(!!input.smsOptIn && !!input.customer.phone),
+      // Consent to texts only counts if the business actually offers texting.
+      Number(!!input.smsOptIn && !!input.customer.phone && smsReady(business)),
     );
     audit(actor, business.id, "booking.created", { bookingId: id, start: start.toISO(), source: input.source });
     const booking = getBooking(id);

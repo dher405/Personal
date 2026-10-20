@@ -155,7 +155,7 @@ superRouter.get("/packs", h(() => getPacks()));
 
 superRouter.put("/packs", h((req) => {
   const packs = parse(z.array(z.object({
-    id: z.string().regex(/^[a-z0-9-]+$/), metric: z.enum(["bookings", "sms", "ai"]),
+    id: z.string().regex(/^[a-z0-9-]+$/), metric: z.enum(["bookings", "ai"]),
     quantity: z.number().int().min(1), priceCents: z.number().int().min(0),
   })), req.body);
   savePacks(packs);
@@ -167,7 +167,7 @@ superRouter.put("/packs", h((req) => {
 superRouter.post("/businesses/:id/credits", h((req) => {
   const b = one("SELECT * FROM businesses WHERE id = ?", req.params.id);
   if (!b) throw notFound();
-  const body = parse(z.object({ metric: z.enum(["bookings", "sms", "ai"]), quantity: z.number().int().min(1).max(100000) }), req.body);
+  const body = parse(z.object({ metric: z.enum(["bookings", "ai"]), quantity: z.number().int().min(1).max(100000) }), req.body);
   grantCredits(b.id, { id: "grant", metric: body.metric, quantity: body.quantity, priceCents: 0 }, 1, "grant", actorOf(req.user));
   return usageFor(b);
 }));
@@ -176,7 +176,7 @@ superRouter.put("/plans", h((req) => {
   const plans = parse(z.array(z.object({
     id: z.string().regex(/^[a-z0-9-]+$/), name: z.string().min(1),
     monthlyPriceCents: z.number().int().min(0),
-    maxStaff: z.number().int().min(1), aiChat: z.boolean(), smsPerMonth: z.number().int().min(0),
+    maxStaff: z.number().int().min(1), aiChat: z.boolean(),
     bookingsPerMonth: z.number().int().min(0), aiMessagesPerMonth: z.number().int().min(0),
   })).min(1), req.body);
   if (!plans.some((p) => p.id === "free")) throw badRequest("A 'free' plan must exist (it is the fallback when subscriptions end)");

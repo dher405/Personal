@@ -32,14 +32,14 @@ Every change to a booking, price, refund, or plan is written to an audit log, al
   - Unpaid bookings hold their slot for 30 minutes and are then released.
 - **Platform billing** (how you get paid): businesses pay for a monthly number of bookings.
   - Monthly plans billed through *your* Stripe account (Stripe Billing, with a customer portal for invoices and cards), plus booking packs or auto top-ups when they need more.
-  - Plans also set texts and AI messages included, the staff limit, and whether AI is included. The super admin edits all of this in **Super admin → Plans & fees**.
-- **Text messages (Twilio).** Customers who tick "Text me" when booking get a confirmation, reminders (24h and 2h before by default; configurable), and notices when something changes. They can reply:
+  - Plans also set AI messages included, the staff limit, and whether AI is included. The super admin edits all of this in **Super admin → Plans & fees**.
+- **Text messages (the business's own Twilio account).** Customers who tick "Text me" when booking get a confirmation, reminders (24h and 2h before by default; configurable), and notices when something changes. They can reply:
   - **C** to confirm they'll come (the booking shows "✓ customer confirmed").
   - **R** to get three new times, then **1**, **2** or **3** to move to one.
   - **X** to cancel (within the cancellation policy, with an automatic refund).
   - Anything else goes to the AI assistant, if the business has it on ("can I come Thursday at 4 instead?").
 
-  Admins get a text when customers book, confirm, reschedule or cancel, plus an optional morning agenda. Staff can get an "up next" text before each appointment. Admins can text **TODAY** or **TOMORROW** for their schedule, or (on AI plans) ask in plain words to move or cancel bookings. STOP/START opt-outs are respected. Each plan includes a monthly text allowance that you set as super admin.
+  Admins get a text when customers book, confirm, reschedule or cancel, plus an optional morning agenda. Staff can get an "up next" text before each appointment. Admins can text **TODAY** or **TOMORROW** for their schedule, or (on AI plans) ask in plain words to move or cancel bookings. STOP/START opt-outs are respected. Businesses pay Twilio for their own texts; Slotwise doesn't meter them.
 - **Refunds.** Full or partial, from the admin bookings screen, the payments list, the super admin payments list, or the mobile admin. If a customer cancels online within the policy window, they're refunded automatically.
 
 ## Try it online
@@ -54,12 +54,12 @@ Every change to a booking, price, refund, or plan is written to an audit log, al
 4. Log in with your super admin account, or as the demo business: `owner@demo.test` / `demo1234`.
 
 What to know about the free test setup (`render.yaml`):
-- It runs in **demo mode**: the sample business is created automatically, payments are test mode (no real money), and texts are simulated (see Admin → Text messages).
+- It runs in **demo mode**: the sample business is created automatically, payments are test mode (no real money), and the sample business texts in test mode (see Admin → Text messages). Customer emails are off until a business connects its email account (Admin → Email).
 - The free plan **sleeps after 15 minutes without visitors**; the first visit after that takes about a minute to wake it.
 - The free plan's **data is wiped on every restart or redeploy**; the demo data comes back each time. To keep data, switch the service to the Starter plan and add the disk described at the bottom of `render.yaml`.
 - The demo business login is public knowledge. Anyone who finds the URL can sign in as it. Fine for testing; remove `DEMO_MODE` before real use.
 - Every push to the `slotwise` branch redeploys automatically.
-- To turn on the AI chat or real texts, add `ANTHROPIC_API_KEY` or the `TWILIO_*` keys under the service's **Environment** tab.
+- To turn on the AI chat, add `ANTHROPIC_API_KEY` under **Super admin → Settings**. Real texts and customer emails are set up by each business on its own Text messages and Email tabs.
 
 ### Option 2: run it inside GitHub (Codespaces, private to you)
 
@@ -110,11 +110,11 @@ Options: `data-service` (open on one service), `data-color`, `data-theme="dark"`
 
 - The embed loads `/embed/<slug>`, the booking page without the site header. Payment opens in a new tab, because checkout pages refuse to run inside another site.
 - Only `/embed/*` may be framed by other sites. Every other page sends `frame-ancestors 'self'`, so admin screens can't be clickjacked.
-- Customers get confirmation, reschedule and cancellation **emails** (via Resend/Postmark) in addition to the optional texts.
+- Customers get confirmation, reschedule and cancellation **emails** from the business's own address (Admin → Email), in addition to the optional texts.
 
 ## Settings pages (no environment variables needed)
 
-**Super admin → Settings** holds every integration's keys: Stripe (for billing businesses), email (Resend/Postmark), Twilio, Anthropic, Google, Microsoft and Apple.
+**Super admin → Settings** holds the platform's own keys: Stripe (for billing businesses), email to business owners (Resend/Postmark), Anthropic, Google, Microsoft and Apple. Each business sets up its own customer channels: payments (Payments tab), email (Email tab) and texts (Text messages tab).
 - Each section shows the exact webhook or redirect URLs to paste into that provider, and most have a **Test connection** button.
 - Values are stored encrypted with `APP_ENCRYPTION_KEY`, only the last 4 characters are ever shown, and changes apply immediately.
 - A value saved there overrides the environment variable of the same name, so existing Render setups keep working.
@@ -141,19 +141,18 @@ Links that point at `/admin/...` (emails, Stripe and calendar redirects) forward
 
 ## Usage-based pricing
 
-Businesses pay by the number of bookings they take. Each plan includes a monthly allowance of **bookings**, **text messages** and **AI assistant messages**, plus a staff limit. There is no fee on customer payments. The super admin edits all of this in **Plans & fees**, along with the top-up **packs** businesses can buy.
+Businesses pay by the number of bookings they take. Each plan includes a monthly allowance of **bookings** and **AI assistant messages**, plus a staff limit. (Texts aren't metered: each business sends them through its own Twilio account.) There is no fee on customer payments. The super admin edits all of this in **Plans & fees**, along with the top-up **packs** businesses can buy.
 
 - **What counts:**
   - **Bookings:** every booking (online, app, AI chat, or entered by the business) counts once it's confirmed; for an online booking that requires payment, that means once payment completes. A booking that's later cancelled still counts; an online booking whose payment never completed doesn't.
-  - **Texts:** count when sent (customer texts and the business's own alerts).
   - **AI:** counts one per message the assistant answers.
 - **When it runs out:** that feature pauses until the business adds more.
   - New bookings pause: customers see a "please call" notice, and the business's own booking form says to add more or upgrade.
-  - Texts are skipped (and logged), and AI chat is hidden.
+  - AI chat is hidden.
   - Meters reset on the 1st of each month (UTC).
 - **Tracker:** usage bars on the business's Dashboard and Plan & billing page, and per business in Super admin → Businesses.
 - **Warnings before the wall:** every admin of the business is emailed once per meter per month at 80%, 90% and 100%, and a banner shows on every admin tab from 80%. The email offers the right pack, the next plan that includes more, and auto top-up.
-- **Packs:** paid through Stripe Checkout (`checkout.session.completed` with `metadata.kind = usage_pack`), and they apply to the current month. **Auto top-up** adds the smallest pack the moment a meter runs out and puts it on the business's next subscription invoice (a Stripe invoice item). It needs a card on file. The super admin can also **Give credits** for free.
+- **Packs:** paid through Stripe Checkout (`checkout.session.completed` with `metadata.kind = usage_pack`), and they apply to the current month. **Auto top-up** adds the smallest pack the moment a meter runs out and puts it on the business's next subscription invoice (a Stripe invoice item), so it needs a paid plan. The super admin can also **Give credits** for free.
 
 ## Calendars
 
@@ -201,18 +200,20 @@ People who choose "Hide my email" get an `@privaterelay.appleid.com` address. To
 
 On Render, add these keys under the service's **Environment** tab and it redeploys. The buttons appear automatically once their keys are set.
 
-## Setting up text messages (Twilio)
+## Customer emails and texts: each business's own accounts
 
-Without Twilio settings, texts are **simulated**: they show up in **Admin → Text messages → Message log**, and the "Try a reply" box there lets you pretend to be a customer texting back. That's enough to try every flow locally.
+Everything sent to a business's customers goes out through that business's own accounts, so it comes from their address and their number, and they pay their providers directly. Slotwise doesn't meter or bill texts.
 
-To send real texts:
-1. In Twilio, buy a number and create a **Messaging Service** containing it. The service handles STOP/HELP automatically.
-2. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_MESSAGING_SERVICE_SID` (or `TWILIO_FROM_NUMBER`) in `server/.env`.
-3. On the Messaging Service, set the incoming message webhook to `https://<your-api>/api/webhooks/twilio/sms` (HTTP POST). Delivery statuses come back to `/api/webhooks/twilio/status` automatically. Both check Twilio's signature, so `PUBLIC_API_URL` must exactly match the public URL Twilio calls.
-4. **US numbers must be registered** before carriers will deliver: register your brand and campaign through **A2P 10DLC** in the Twilio console, or use a verified toll-free number. Registration takes days to weeks, so start early. Describe the use case as appointment confirmations and reminders with two-way replies.
-5. Each business turns texting on under **Admin → Text messages** and enters their own mobile number for alerts. Staff mobile numbers go under **Staff & hours**.
+**Email (Admin → Email).** The business picks **My email account** (SMTP, with presets for Gmail/Google Workspace, Microsoft 365/Outlook, Zoho, iCloud, Yahoo, or any web host) or **Resend** for a custom domain. Confirmations, changes and cancellations (with calendar invites) are sent from their address, with an optional reply-to. **Send me a test email** sends a real one. The **Email log** lists every customer email with its status: *sent*, *failed* (with the provider's reason) or *not sent* (email isn't set up yet). Gmail needs 2-Step Verification and an app password.
 
-All businesses share one platform number. When a customer replies, it's matched to the booking from the most recent text that customer received.
+**Texts (Admin → Text messages).** The business connects **its own Twilio account**: Account SID, Auth token, and its Twilio number (or a Messaging Service SID). The tab shows the business's own incoming-message webhook, `https://<your-api>/api/webhooks/twilio/<business id>/sms`, to paste into that number's "A message comes in" setting; delivery statuses come back automatically. Both are checked with that business's auth token, so `PUBLIC_API_URL` must exactly match the public URL Twilio calls. **Check connection** confirms the credentials and that the number belongs to the account.
+
+- Until Twilio is connected, texting is **hidden everywhere**: no "Text me" box on the booking page, website calendar or app, the AI assistant doesn't offer texts, and texting can't be switched on.
+- STOP is per business: replying STOP to one business's number doesn't stop texts from another.
+- **US numbers must be registered** (A2P 10DLC, or toll-free verification) before carriers deliver. It takes days, so businesses should start early.
+- **Test mode** (texts recorded in the Message log, never sent, with a "Try a reply" box) is available locally and in demo mode only.
+
+Emails to business owners (password resets, new-booking alerts, usage and billing alerts) still come from the platform account in **Super admin → Settings → Email**.
 
 ## Setting up payments
 
@@ -246,17 +247,17 @@ To publish to the App Store and Google Play, use EAS: `npx eas build` then `npx 
 | Auth | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `GET /api/auth/my-bookings` |
 | Public | `GET /api/public/businesses[/:slug]`, `GET …/:slug/slots`, `POST …/:slug/bookings`, `POST …/:slug/chat` |
 | Customer self-service | `GET /api/public/manage/:token`, `POST …/reschedule`, `…/cancel`, `…/pay` |
-| Admin (per business) | `/api/admin/:bid` → settings, `/sms`, `/sms/test`, `/sms/simulate`, `/bookings/:id/sms-reminder`, `/services`, `/staff`, `/staff/:id/hours`, `/staff/:id/time-off`, `/bookings`, `/slots`, `/payments`, `/payments/:id/refund`, `/payment-provider`, `/billing/checkout`, `/billing/portal`, `/assistant`, `/stats`, `/audit` |
+| Admin (per business) | `/api/admin/:bid` → settings, `/communications` (+ `/email`, `/sms`, `/email/test`, `/sms/check`), `/sms`, `/sms/test`, `/sms/simulate`, `/bookings/:id/sms-reminder`, `/services`, `/staff`, `/staff/:id/hours`, `/staff/:id/time-off`, `/bookings`, `/slots`, `/payments`, `/payments/:id/refund`, `/payment-provider`, `/billing/checkout`, `/billing/portal`, `/assistant`, `/stats`, `/audit` |
 | Super admin | `/api/super/overview`, `/businesses`, `/businesses/:id/members`, `/users`, `/plans`, `/payments`, `/audit` |
 | Payments | `/api/payments/:id/return`, `/api/payments/sync/:token`, `/api/webhooks/{stripe,square,paypal}` |
-| SMS | `/api/webhooks/twilio/sms` (incoming texts), `/api/webhooks/twilio/status` (delivery status), `POST /api/public/manage/:token/confirm` |
+| SMS | `/api/webhooks/twilio/:bid/sms` (incoming texts to that business's number), `/api/webhooks/twilio/:bid/status` (delivery status), `POST /api/public/manage/:token/confirm` |
 
 ## Before launching for real
 
 - [ ] Run on a host with HTTPS (Render, Fly.io, Railway, AWS). Set `NODE_ENV=production`, `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `PUBLIC_WEB_URL`, and `PUBLIC_API_URL`. Serve `web/dist` from a CDN or static host.
 - [ ] **Database.** SQLite is fine for one server. To run several, move to Postgres; all SQL goes through `server/src/db.ts`.
-- [ ] **Twilio live setup and A2P 10DLC (or toll-free) registration**, as described above. Texts sent before registration will be blocked by US carriers.
-- [ ] **Email provider** (Resend or Postmark) so password-reset emails are delivered.
+- [ ] Tell businesses that texting needs their own Twilio number with **A2P 10DLC (or toll-free) registration**; texts sent before registration are blocked by US carriers.
+- [ ] **Platform email provider** (Resend or Postmark) so password resets and owner alerts are delivered. (Customer emails go through each business's own account.)
 - [ ] Switch your Stripe billing keys to live and register the webhook above.
 - [ ] Terms of service, privacy policy, and refund policy pages. Your payment providers' platform agreements will ask for these.
 - [ ] Use a shared rate-limit store (Redis) if you run more than one API instance.

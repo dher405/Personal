@@ -56,8 +56,8 @@ export function SuperBusinessPanel() {
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h2 style={{ margin: 0 }}>Usage this month</h2>
           <button onClick={() => {
-            const metric = prompt("Give free extra uses this month. Which kind? bookings, sms or ai", "bookings");
-            if (!metric || !["bookings", "sms", "ai"].includes(metric)) return;
+            const metric = prompt("Give free extra uses this month. Which kind? bookings or ai", "bookings");
+            if (!metric || !["bookings", "ai"].includes(metric)) return;
             const qty = Number(prompt("How many?", "50"));
             if (qty > 0) action.run(async () => { await api(`/super/businesses/${b.id}/credits`, { body: { metric, quantity: qty } }); refresh(); });
           }}>Give credits</button>

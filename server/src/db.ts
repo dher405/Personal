@@ -267,6 +267,32 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 
 // --- Usage-based pricing: metered uses, purchased credits, alerts sent ---
 addColumn("businesses", "auto_topup", "INTEGER NOT NULL DEFAULT 0");
+// --- Customer communications: each business's own email account and Twilio account (encrypted JSON) ---
+addColumn("businesses", "comms_config", "TEXT NOT NULL DEFAULT ''");
+db.exec(`
+CREATE TABLE IF NOT EXISTS email_messages (
+  id TEXT PRIMARY KEY,
+  business_id TEXT REFERENCES businesses(id) ON DELETE CASCADE,
+  booking_id TEXT REFERENCES bookings(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  to_email TEXT NOT NULL,
+  from_email TEXT,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('sent','failed','not_sent')),
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_email_business ON email_messages(business_id, created_at);
+
+-- STOP is per business: each business texts from its own number.
+CREATE TABLE IF NOT EXISTS business_sms_opt_outs (
+  business_id TEXT NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (business_id, phone)
+);
+`);
 // When a paid plan is set to end (moving to Starter), it runs until this time (ISO, UTC), then the business moves to Starter.
 addColumn("businesses", "plan_ends_at", "TEXT");
 db.exec(`

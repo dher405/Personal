@@ -68,8 +68,8 @@ function Businesses() {
   const action = useAction();
   const patch = (id: string, body: object) => action.run(async () => { await api(`/super/businesses/${id}`, { method: "PATCH", body }); reload(); });
   const grant = (b: any) => {
-    const metric = prompt(`Give ${b.name} free extra uses this month. Which kind? Type: bookings, sms or ai`, "bookings");
-    if (!metric || !["bookings", "sms", "ai"].includes(metric)) return;
+    const metric = prompt(`Give ${b.name} free extra uses this month. Which kind? Type: bookings or ai`, "bookings");
+    if (!metric || !["bookings", "ai"].includes(metric)) return;
     const qty = Number(prompt("How many?", "50"));
     if (qty > 0) action.run(async () => { await api(`/super/businesses/${b.id}/credits`, { body: { metric, quantity: qty } }); reload(); });
   };
@@ -182,11 +182,11 @@ function Plans() {
   const update = (i: number, patch: object) => setData(data.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   return (
     <div className="card stack">
-      <p className="muted small">What businesses pay you: a monthly price for a set number of bookings (plus texts and AI messages), billed through your Stripe account. Businesses that need more buy the packs below or upgrade. You take nothing from their customers' payments.</p>
+      <p className="muted small">What businesses pay you: a monthly price for a set number of bookings (plus AI assistant messages), billed through your Stripe account. Businesses that need more buy the packs below or upgrade. You take nothing from their customers' payments.</p>
       {action.error && <div className="error">{action.error}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Max staff</th><th>Bookings / mo</th><th>Texts / mo</th><th>AI chat</th><th>AI messages / mo</th><th /></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Max staff</th><th>Bookings / mo</th><th>AI chat</th><th>AI messages / mo</th><th /></tr></thead>
           <tbody>
             {data.map((p, i) => (
               <tr key={i}>
@@ -195,7 +195,6 @@ function Plans() {
                 <td><input type="number" step="0.01" value={p.monthlyPriceCents / 100} onChange={(e) => update(i, { monthlyPriceCents: Math.round(Number(e.target.value) * 100) })} /></td>
                 <td><input type="number" value={p.maxStaff} onChange={(e) => update(i, { maxStaff: Number(e.target.value) })} /></td>
                 <td><input type="number" min={0} value={p.bookingsPerMonth} onChange={(e) => update(i, { bookingsPerMonth: Number(e.target.value) })} /></td>
-                <td><input type="number" min={0} value={p.smsPerMonth} onChange={(e) => update(i, { smsPerMonth: Number(e.target.value) })} /></td>
                 <td><input type="checkbox" checked={p.aiChat} onChange={(e) => update(i, { aiChat: e.target.checked })} /></td>
                 <td><input type="number" min={0} value={p.aiMessagesPerMonth} onChange={(e) => update(i, { aiMessagesPerMonth: Number(e.target.value) })} /></td>
                 <td>{p.id !== "free" && <button className="danger" onClick={() => setData(data.filter((_, j) => j !== i))}>Remove</button>}</td>
@@ -205,7 +204,7 @@ function Plans() {
         </table>
       </div>
       <div className="row">
-        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 0, smsPerMonth: 0, aiMessagesPerMonth: 0 }])}>+ Add plan</button>
+        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 0, aiMessagesPerMonth: 0 }])}>+ Add plan</button>
         <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { setData(await api("/super/plans", { method: "PUT", body: data })); setSaved(true); setTimeout(() => setSaved(false), 2000); })}>Save plans</button>
         {saved && <span className="notice small">Saved</span>}
       </div>
@@ -215,7 +214,7 @@ function Plans() {
   );
 }
 
-const PACK_METRICS: Record<string, string> = { bookings: "Bookings", sms: "Text messages", ai: "AI assistant messages" };
+const PACK_METRICS: Record<string, string> = { bookings: "Bookings", ai: "AI assistant messages" };
 
 /** Top-up packs businesses can buy when they run low. */
 function Packs() {

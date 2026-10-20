@@ -8,28 +8,23 @@ import { badRequest } from "./errors.js";
 import { getPacks, getPlan, getPlans, type Plan, type UsagePack } from "./plans.js";
 
 /**
- * Usage-based pricing: businesses pay by the number of bookings they take (plus texts and AI messages).
+ * Usage-based pricing: businesses pay by the number of bookings they take (plus AI assistant messages).
+ * Texts aren't metered: each business sends them through its own Twilio account and pays Twilio directly.
  * Each plan includes a monthly allowance per meter; packs or auto top-up add more. Every booking counts,
  * online or entered by the business, once confirmed (an online booking whose payment was never completed
  * doesn't). Months are calendar months in UTC, so meters reset on the 1st.
  */
 
-export type Metric = "bookings" | "sms" | "ai";
-export const METRICS: Metric[] = ["bookings", "sms", "ai"];
-export const METRIC_LABEL: Record<Metric, string> = { bookings: "bookings", sms: "text messages", ai: "AI assistant messages" };
-const PLAN_FIELD: Record<Metric, keyof Plan> = { bookings: "bookingsPerMonth", sms: "smsPerMonth", ai: "aiMessagesPerMonth" };
+export type Metric = "bookings" | "ai";
+export const METRICS: Metric[] = ["bookings", "ai"];
+export const METRIC_LABEL: Record<Metric, string> = { bookings: "bookings", ai: "AI assistant messages" };
+const PLAN_FIELD: Record<Metric, keyof Plan> = { bookings: "bookingsPerMonth", ai: "aiMessagesPerMonth" };
 /** Warnings at 80% and 90% (before the wall), then a notice at 100%. */
 export const ALERT_THRESHOLDS = [80, 90, 100];
 
 export const currentPeriod = () => DateTime.utc().toFormat("yyyy-LL");
 
 function usedThisMonth(businessId: string, metric: Metric): number {
-  if (metric === "sms") {
-    return one<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM sms_messages WHERE business_id = ? AND direction = 'outbound'
-         AND status NOT IN ('failed','skipped') AND created_at >= datetime('now','start of month')`, businessId,
-    )!.n;
-  }
   return one<{ n: number }>(
     "SELECT COUNT(*) AS n FROM usage_events WHERE business_id = ? AND metric = ? AND created_at >= datetime('now','start of month')",
     businessId, metric,
@@ -75,7 +70,7 @@ export function hasCapacity(business: Row, metric: Metric): boolean {
 }
 
 /** Counts one use (idempotent per ref id), then sends any 80% / 100% alerts due. */
-export function recordUse(business: Row, metric: Exclude<Metric, "sms">, refId: string) {
+export function recordUse(business: Row, metric: Metric, refId: string) {
   const res = run("INSERT OR IGNORE INTO usage_events (business_id, metric, ref_id) VALUES (?,?,?)", business.id, metric, refId);
   if (res.changes) checkAlerts(business, metric).catch((err) => console.error("usage alert failed", err));
 }
@@ -185,7 +180,7 @@ export async function checkAlerts(business: Row, metric: Metric) {
   const upgrade = upgradeFor(fresh, metric);
   const full = threshold >= 100;
   const resets = DateTime.utc().plus({ months: 1 }).startOf("month").toFormat("LLLL d");
-  const paused = { bookings: "New bookings, online or entered by you, are paused", sms: "Texts are paused", ai: "The AI assistant is paused" }[metric];
+  const paused = { bookings: "New bookings, online or entered by you, are paused", ai: "The AI assistant is paused" }[metric];
   const lines = [
     `${fresh.name} has used ${m.used} of ${m.limit} ${m.label} this month (${m.percent}%).`,
     full

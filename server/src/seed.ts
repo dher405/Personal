@@ -2,6 +2,7 @@ import { newId, one, run } from "./db.js";
 import { hashPassword } from "./lib/auth.js";
 import { encryptJson } from "./lib/crypto.js";
 import { createBusiness } from "./routes/auth.js";
+import { saveChannels } from "./lib/channels.js";
 
 /** Creates (or promotes) the super admin and a demo business you can book against. Safe to re-run. */
 export async function seed() {
@@ -11,7 +12,12 @@ export async function seed() {
   if (existing) run("UPDATE users SET role = 'superadmin' WHERE id = ?", existing.id);
   else run("INSERT INTO users (id, email, password_hash, name, role) VALUES (?,?,?,?, 'superadmin')", newId("usr"), superEmail, await hashPassword(superPassword), "Platform Owner");
 
-  if (one("SELECT 1 FROM businesses WHERE slug = 'riverside-music'")) return { superEmail };
+  const demo = one("SELECT id, comms_config FROM businesses WHERE slug = 'riverside-music'");
+  if (demo) {
+    // Demo businesses made before businesses had their own channels: texts in test mode, so they still show in the log.
+    if (!demo.comms_config) saveChannels(demo.id, { email: { provider: "none" }, sms: { provider: "test" } });
+    return { superEmail };
+  }
 
   const ownerId = newId("usr");
   run("INSERT INTO users (id, email, password_hash, name, role) VALUES (?,?,?,?, 'admin')", ownerId, "owner@demo.test", await hashPassword("demo1234"), "Dana Rivers");
@@ -22,6 +28,8 @@ export async function seed() {
        sms_enabled = 1, sms_admin_phone = '+15550102020', sms_agenda_hour = 7, sms_staff_reminder_min = 60 WHERE id = ?`,
     "Private piano, guitar and voice lessons for all ages.", encryptJson({}), biz.id,
   );
+  // Texts in test mode (shown in the message log, never sent). Customer email stays off until the owner connects their own account.
+  saveChannels(biz.id, { email: { provider: "none" }, sms: { provider: "test" } });
 
   const staff = [
     { id: newId("stf"), name: "Alex Kim", phone: "+15550103030", bio: "Piano & music theory, 12 years teaching." },
