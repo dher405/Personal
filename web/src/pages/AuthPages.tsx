@@ -4,20 +4,39 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { useAction, useApi } from "../hooks";
 import { SocialButtons } from "../components/SocialButtons";
+import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
+import { passkeySignIn, TwoFactorStep } from "../components/TwoFactorStep";
+import { deviceFields, type TwoFactor } from "../auth";
+import { Security } from "./Security";
 
 export const landing = (role: string) => (role === "superadmin" ? "/super/businesses" : role === "admin" ? "/admin" : "/me");
 
 export function Login() {
-  const { login } = useAuth();
+  const { login, settle } = useAuth();
   const nav = useNavigate();
   const [params] = useSearchParams();
   const { busy, error, run } = useAction();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [challenge, setChallenge] = useState<TwoFactor | null>(null);
   const providerError = params.get("error");
+  const wanted = params.get("next")?.startsWith("/") && !params.get("next")!.startsWith("//") ? params.get("next")! : null;
+  const go = (role: string) => nav(wanted && wanted !== "/me" ? wanted : landing(role));
+  const signIn = () => run(async () => {
+    const r = await login(email, password);
+    if (r.twoFactor) setChallenge(r.twoFactor); else go(r.session.user.role);
+  });
+
+  if (challenge) {
+    return (
+      <div className="container narrow">
+        <div className="card"><TwoFactorStep challenge={challenge} onDone={(r) => go(r.session.user.role)} onCancel={() => { setChallenge(null); setPassword(""); }} /></div>
+      </div>
+    );
+  }
   return (
     <div className="container narrow">
-      <form className="card stack" onSubmit={(e) => { e.preventDefault(); run(async () => nav(landing((await login(email, password)).user.role))); }}>
+      <form className="card stack" onSubmit={(e) => { e.preventDefault(); signIn(); }}>
         <h1>Sign in</h1>
         {providerError && <div className="error">{providerError}</div>}
         {params.get("reset") && <div className="notice">Password updated. You're signed in on this device only.</div>}
@@ -30,7 +49,14 @@ export function Login() {
           <button className="primary" disabled={busy}>Sign in</button>
           <Link to={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`} className="small">Forgot password?</Link>
         </div>
+        {browserSupportsWebAuthn() && (
+          <>
+            <div className="divider">or</div>
+            <button type="button" disabled={busy} onClick={() => run(async () => { const r = await passkeySignIn(settle); if (r.session) go(r.session.user.role); })}>🔑 Sign in with a passkey</button>
+          </>
+        )}
         <span className="muted small">New here? <Link to="/register">Create an account</Link></span>
+        <p className="small muted" style={{ margin: 0 }}>For your security, signing in on a new device also needs a code we email you, or your passkey.</p>
       </form>
     </div>
   );
@@ -41,6 +67,7 @@ export function Register() {
   const nav = useNavigate();
   const [params] = useSearchParams();
   const [provider, setProvider] = useState(params.get("provider") === "1");
+  const [challenge, setChallenge] = useState<TwoFactor | null>(null);
   const { busy, error, run } = useAction();
   const [form, setForm] = useState({ name: "", email: "", password: "", businessName: "", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
@@ -48,10 +75,18 @@ export function Register() {
   const submit = () => run(async () => {
     const body: Record<string, string> = { name: form.name, email: form.email, password: form.password };
     if (provider) Object.assign(body, { businessName: form.businessName, timezone: form.timezone });
-    const s = await register(body);
-    nav(provider ? `/admin/${s.businesses[0].id}/setup` : "/");
+    const r = await register(body);
+    if (r.twoFactor) setChallenge(r.twoFactor); else done(r.session);
   });
+  const done = (s: { businesses: { id: string }[] }) => nav(provider && s.businesses[0] ? `/admin/${s.businesses[0].id}/setup` : "/");
 
+  if (challenge) {
+    return (
+      <div className="container narrow">
+        <div className="card"><TwoFactorStep purpose="register" challenge={challenge} onDone={(r) => done(r.session)} /></div>
+      </div>
+    );
+  }
   return (
     <div className="container narrow">
       <form className="card stack" onSubmit={(e) => { e.preventDefault(); submit(); }}>
@@ -111,7 +146,7 @@ export function ResetPassword() {
   const submit = () => {
     if (password !== confirm) return setError("The two passwords don't match");
     run(async () => {
-      const s = accept(await api("/auth/reset-password", { body: { token, password } }));
+      const s = accept(await api("/auth/reset-password", { body: { token, password, ...deviceFields() } }));
       nav(landing(s.user.role));
     });
   };
@@ -131,24 +166,30 @@ export function ResetPassword() {
   );
 }
 
-/** Google/Apple send people back here with the session token in the URL fragment. */
+/**
+ * Google/Apple send people back here with a sign-in challenge in the URL fragment. This browser then says which
+ * device it is: a remembered device goes straight in, otherwise the second step (code or passkey) is shown.
+ */
 export function AuthCallback() {
-  const { signInWithToken } = useAuth();
+  const { settle } = useAuth();
   const nav = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [challenge, setChallenge] = useState<TwoFactor | null>(null);
+  const go = (role: string, next?: string | null) => nav(!next || next === "/me" || next === "/" ? landing(role) : next, { replace: true });
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.slice(1));
-    const token = hash.get("token");
-    const next = hash.get("next") ?? "/";
-    history.replaceState(null, "", window.location.pathname); // don't leave the token in the address bar / history
-    if (!token) { setError("Sign-in didn't complete. Please try again."); return; }
-    signInWithToken(token)
-      .then((s) => nav(next === "/me" || next === "/" ? landing(s.user.role) : next, { replace: true }))
-      .catch(() => setError("Sign-in didn't complete. Please try again."));
+    const challengeId = hash.get("challenge");
+    history.replaceState(null, "", window.location.pathname); // don't leave it in the address bar / history
+    if (!challengeId) { setError("Sign-in didn't complete. Please try again."); return; }
+    api("/auth/2fa/resume", { body: { challengeId, ...deviceFields() } })
+      .then((res) => { const r = settle(res); if (r.twoFactor) setChallenge(r.twoFactor); else go(r.session.user.role, r.next); })
+      .catch((e) => setError(e.message || "Sign-in didn't complete. Please try again."));
   }, []);
   return (
     <div className="container narrow">
-      {error ? <div className="card stack"><div className="error">{error}</div><Link to="/login">Back to sign in</Link></div> : <p className="muted">Signing you in…</p>}
+      {error ? <div className="card stack"><div className="error">{error}</div><Link to="/login">Back to sign in</Link></div>
+        : challenge ? <div className="card"><TwoFactorStep challenge={challenge} onDone={(r) => go(r.session.user.role, r.next ?? challenge.next)} /></div>
+        : <p className="muted">Signing you in…</p>}
     </div>
   );
 }
@@ -211,6 +252,7 @@ export function Account() {
         <label>New password (8+ characters)<input type="password" autoComplete="new-password" required minLength={8} value={next} onChange={(e) => setNext(e.target.value)} /></label>
         <div><button className="primary" disabled={busy}>Save password</button></div>
       </form>
+      <Security />
     </div>
   );
 }

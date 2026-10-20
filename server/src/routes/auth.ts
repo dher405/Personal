@@ -10,6 +10,11 @@ import { actorOf, checkPassword, hashPassword, requireAuth, signToken, type Auth
 import { badRequest, HttpError } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
 import { rateLimit } from "../lib/rateLimit.js";
+import {
+  addPasskey, checkCode, checkPasskey, completeWithoutSecondStep, createOAuthChallenge, describeChallenge, findDevice, getChallenge,
+  isTrusted, listDevices, listPasskeys, passkeyRegistrationOptions, passkeySignInOptions, removePasskey, revokeDevice,
+  revokeOtherDevices, sendCode, signInDevice, startSecondStep, TRUST_DAYS, twoFactorRequired,
+} from "../lib/twoFactor.js";
 
 export const authRouter = Router();
 
@@ -28,14 +33,37 @@ export function createBusiness(ownerId: string, name: string, timezone = "Americ
   return one("SELECT * FROM businesses WHERE id = ?", id)!;
 }
 
-function session(user: AuthUser) {
+/** The session for a device that's already signed in (refreshing /me, opening a business…). */
+function session(user: AuthUser, deviceId: string) {
   const businesses = user.role === "customer" ? [] : all(
     user.role === "superadmin"
       ? "SELECT id, name, slug FROM businesses ORDER BY name"
       : "SELECT b.id, b.name, b.slug FROM businesses b JOIN business_members m ON m.business_id = b.id WHERE m.user_id = ? ORDER BY b.name",
     ...(user.role === "superadmin" ? [] : [user.id]),
   );
-  return { token: signToken(user), user, businesses };
+  return { token: signToken(user, deviceId), user, businesses };
+}
+
+const userById = (id: string) => one<AuthUser>("SELECT id, email, name, role FROM users WHERE id = ?", id)!;
+
+/** Fields every sign-in step accepts: the device token a browser or app kept from last time, and whether to trust it. */
+const deviceFields = { deviceToken: z.string().max(200).optional(), deviceName: z.string().max(60).optional(), remember: z.boolean().optional() };
+type DeviceFields = { deviceToken?: string; deviceName?: string; remember?: boolean };
+
+/** Signs a device in. Also returns its device token, which the browser or app keeps to be recognised next time. */
+function issueSession(req: Request, user: AuthUser, d: DeviceFields, verifiedWith: string | null) {
+  const { deviceId, deviceToken } = signInDevice(req, user, { ...d, verifiedWith });
+  return { ...session(user, deviceId), deviceToken };
+}
+
+/**
+ * After the first step (password, Google/Apple, new account): a trusted device goes straight in; otherwise the
+ * response is `{ twoFactor }` and the sign-in page asks for the emailed code or a passkey.
+ */
+async function afterFirstStep(req: Request, user: AuthUser, d: DeviceFields, purpose: "login" | "oauth" | "register", next?: string) {
+  if (!twoFactorRequired(user)) return issueSession(req, user, d, null);
+  if (purpose !== "register" && isTrusted(findDevice(user.id, d.deviceToken))) return issueSession(req, user, d, null);
+  return { twoFactor: { ...(await startSecondStep(user, purpose, next)), next: next ?? null } };
 }
 
 authRouter.post("/register", rateLimit({ windowMs: 60 * 60_000, max: 20 }), h(async (req) => {
@@ -47,6 +75,7 @@ authRouter.post("/register", rateLimit({ windowMs: 60 * 60_000, max: 20 }), h(as
     // Present when signing up as a provider; omitted for customers.
     businessName: z.string().min(2).optional(),
     timezone: z.string().optional(),
+    ...deviceFields,
   }), req.body);
   if (one("SELECT 1 FROM users WHERE email = ?", body.email)) throw badRequest("An account with that email already exists");
   const id = newId("usr");
@@ -57,17 +86,94 @@ authRouter.post("/register", rateLimit({ windowMs: 60 * 60_000, max: 20 }), h(as
     const biz = createBusiness(id, body.businessName, body.timezone);
     audit({ id, label: body.email }, biz.id, "business.created", {});
   }
-  return session(one<AuthUser>("SELECT id, email, name, role FROM users WHERE id = ?", id)!);
+  // New accounts confirm their email with a code before they're signed in.
+  return afterFirstStep(req, userById(id), body, "register");
 }));
 
 authRouter.post("/login", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(async (req) => {
-  const body = parse(z.object({ email: z.string(), password: z.string() }), req.body);
+  const body = parse(z.object({ email: z.string(), password: z.string(), ...deviceFields }), req.body);
   const row = one("SELECT * FROM users WHERE email = ?", body.email.trim());
   if (!row || !(await checkPassword(body.password, row.password_hash))) throw new HttpError(401, "Wrong email or password");
-  return session({ id: row.id, email: row.email, name: row.name, role: row.role });
+  return afterFirstStep(req, { id: row.id, email: row.email, name: row.name, role: row.role }, body, "login");
 }));
 
-authRouter.get("/me", requireAuth, h((req) => session(req.user!)));
+// ---------- The second step: emailed code or passkey ----------
+
+const challengeId = z.string().min(5).max(60);
+
+/** Emails a (new) code. */
+authRouter.post("/2fa/send-code", rateLimit({ windowMs: 15 * 60_000, max: 15 }), h(async (req) => {
+  const body = parse(z.object({ challengeId }), req.body);
+  await sendCode(body.challengeId);
+  const c = getChallenge(body.challengeId, ["login", "oauth", "register"]);
+  return describeChallenge(c, userById(c.user_id));
+}));
+
+authRouter.post("/2fa/verify", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h((req) => {
+  const body = parse(z.object({ challengeId, code: z.string().min(4).max(12), ...deviceFields }), req.body);
+  const c = checkCode(body.challengeId, body.code);
+  return { ...issueSession(req, userById(c.user_id), body, "email"), next: c.next };
+}));
+
+/** Passkey options: for the second step (with a challengeId) or to sign in with a passkey alone (without). */
+authRouter.post("/passkey/options", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(async (req) => {
+  const body = parse(z.object({ challengeId: challengeId.optional() }), req.body);
+  return passkeySignInOptions(body.challengeId);
+}));
+
+authRouter.post("/passkey/verify", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(async (req) => {
+  const body = parse(z.object({ challengeId, response: z.any(), ...deviceFields }), req.body);
+  const { challenge, userId } = await checkPasskey(body.challengeId, body.response);
+  return { ...issueSession(req, userById(userId), body, "passkey"), next: challenge.next };
+}));
+
+/** Back from Google/Apple: the browser says which device it is; a trusted device goes straight in. */
+authRouter.post("/2fa/resume", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(async (req) => {
+  const body = parse(z.object({ challengeId, ...deviceFields }), req.body);
+  const c = getChallenge(body.challengeId, ["oauth"]);
+  const user = userById(c.user_id);
+  if (!twoFactorRequired(user) || isTrusted(findDevice(user.id, body.deviceToken))) {
+    completeWithoutSecondStep(c.id);
+    return { ...issueSession(req, user, body, null), next: c.next };
+  }
+  // Reuse this challenge for the second step.
+  if (!listPasskeys(user.id).length) await sendCode(c.id);
+  return { twoFactor: { ...describeChallenge(getChallenge(c.id, ["oauth"]), user), next: c.next } };
+}));
+
+authRouter.get("/me", requireAuth, h((req) => session(req.user!, req.deviceId!)));
+
+// ---------- Account → Security: passkeys and signed-in devices ----------
+
+authRouter.get("/security", requireAuth, h((req) => ({
+  twoFactorOn: twoFactorRequired(req.user!),
+  emailWorking: emailLive(),
+  rememberDays: TRUST_DAYS,
+  passkeys: listPasskeys(req.user!.id),
+  devices: listDevices(req.user!.id, req.deviceId),
+})));
+
+authRouter.post("/passkeys/options", requireAuth, h((req) => passkeyRegistrationOptions(req.user!)));
+
+authRouter.post("/passkeys", requireAuth, h(async (req) => {
+  const body = parse(z.object({ challengeId, response: z.any(), name: z.string().max(60).optional() }), req.body);
+  return addPasskey(req.user!, body.challengeId, body.response, body.name);
+}));
+
+authRouter.delete("/passkeys/:id", requireAuth, h((req) => { removePasskey(req.user!, req.params.id as string); return { ok: true }; }));
+
+/** Signs a device out (and forgets that it was trusted). Signing out the current one ends this session. */
+authRouter.delete("/devices/:id", requireAuth, h((req) => {
+  revokeDevice(req.user!.id, req.params.id as string);
+  audit(actorOf(req.user), null, "auth.device_signed_out", { deviceId: req.params.id });
+  return { ok: true, signedOut: req.params.id === req.deviceId };
+}));
+
+authRouter.post("/devices/sign-out-others", requireAuth, h((req) => {
+  const n = revokeOtherDevices(req.user!.id, req.deviceId);
+  audit(actorOf(req.user), null, "auth.devices_signed_out", { count: n });
+  return { ok: true, count: n };
+}));
 
 /** Lets an existing admin open an additional business (e.g. a second location). */
 authRouter.post("/businesses", requireAuth, h((req) => {
@@ -76,7 +182,7 @@ authRouter.post("/businesses", requireAuth, h((req) => {
   if (req.user!.role === "customer") run("UPDATE users SET role = 'admin' WHERE id = ?", req.user!.id);
   const biz = createBusiness(req.user!.id, body.name, body.timezone);
   audit(actorOf(req.user), biz.id, "business.created", {});
-  return { business: biz, session: session(one<AuthUser>("SELECT id, email, name, role FROM users WHERE id = ?", req.user!.id)!) };
+  return { business: biz, session: session(userById(req.user!.id), req.deviceId!) };
 }));
 
 // ---------- Password reset & change ----------
@@ -100,9 +206,11 @@ authRouter.post("/forgot-password", rateLimit({ windowMs: 15 * 60_000, max: 5 })
 }));
 
 authRouter.post("/reset-password", rateLimit({ windowMs: 15 * 60_000, max: 10 }), h(async (req) => {
-  const body = parse(z.object({ token: z.string().min(20), password: z.string().min(8) }), req.body);
-  const user = await resetPassword(body.token, body.password);
-  return session(user as AuthUser);
+  const body = parse(z.object({ token: z.string().min(20), password: z.string().min(8), ...deviceFields }), req.body);
+  const user = await resetPassword(body.token, body.password) as AuthUser;
+  // The reset link proved the person has the mailbox (the same proof as a code). Other devices are signed out.
+  revokeOtherDevices(user.id);
+  return issueSession(req, user, { ...body, remember: false }, "reset");
 }));
 
 authRouter.get("/account", requireAuth, h((req) => ({
@@ -118,8 +226,9 @@ authRouter.post("/change-password", requireAuth, rateLimit({ windowMs: 15 * 60_0
     throw new HttpError(400, "Current password is incorrect");
   }
   run("UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?", await hashPassword(body.newPassword), req.user!.id);
+  revokeOtherDevices(req.user!.id, req.deviceId);
   audit(actorOf(req.user), null, "user.password_changed", {});
-  return session(req.user!); // fresh token; other devices are signed out
+  return session(req.user!, req.deviceId!); // fresh token; other devices are signed out and must do the second step again
 }));
 
 // ---------- Sign in with Google / Apple ----------
@@ -178,8 +287,9 @@ const callback = h(async (req, res) => {
     const { user } = findOrCreateUser(provider, profile, appleName);
     const hasBusiness = !!one("SELECT 1 FROM business_members WHERE user_id = ?", user.id);
     const next = state.intent === "business" && !hasBusiness && user.role !== "superadmin" ? "/start-business" : state.next;
-    // The token travels in the URL fragment, which browsers never send to servers or log.
-    res.redirect(`${config.webUrl}/auth/callback#token=${encodeURIComponent(signToken(user))}&next=${encodeURIComponent(next)}`);
+    // Google/Apple is the first step. The sign-in page then sends this browser's device token to /2fa/resume, which
+    // signs a trusted device straight in or asks for the second step. (The fragment is never sent to servers or logged.)
+    res.redirect(`${config.webUrl}/auth/callback#challenge=${encodeURIComponent(createOAuthChallenge(user.id, next))}`);
   } catch (err) {
     loginError(res, (err as Error).message);
   }

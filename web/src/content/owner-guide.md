@@ -39,6 +39,12 @@ You can sign in with an email and password, or with your Google or Apple account
 
 **Several businesses or locations.** One account can manage several businesses. Click **Admin** to choose between them. Ask Slotwise support to give another person (a manager or co-owner) admin access to your business.
 
+**Two-step sign-in.** To protect your business and your customers' details, signing in on a new phone, computer or browser takes two steps. First your password (or Google/Apple), then either a 6-digit code we email you or a passkey. The code expires after 10 minutes. Can't find it? Check your spam folder, or click **Send a new code**. Tick **Remember this device for 30 days** on your own devices so you aren't asked every time. Don't tick it on a shared or public computer. When you create an account, the same code confirms your email address. We email you whenever a new device signs in to your account.
+
+**Passkeys (quicker and safer).** Under **Account → Security**, click **+ Add a passkey on this device**. Your phone or computer asks for your fingerprint, face or PIN. After that, click **Sign in with a passkey** on the sign-in page, with no password or code needed. You can also use the passkey instead of the emailed code. Add one on each device you use.
+
+**Signed-in devices.** **Account → Security** lists every device signed in to your account, when it was last used, and whether it's remembered. Click **Sign out** next to one you don't recognise (then change your password), or **Sign out all other devices**. Changing or resetting your password also signs out every other device.
+
 ## Services, lessons and prices
 
 A service is anything customers can book: a haircut, a 30-minute piano lesson, a consultation. Each one has its own length, price and list of staff who provide it.

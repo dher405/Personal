@@ -5,6 +5,13 @@ export const tokenStore = {
   set: (t: string | null) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch { /* private mode */ } },
 };
 
+/** Identifies this browser to the server ("remember this device"). Kept when signing out so the device stays trusted. */
+const DEVICE_KEY = "slotwise.device";
+export const deviceStore = {
+  get: () => { try { return localStorage.getItem(DEVICE_KEY) ?? undefined; } catch { return undefined; } },
+  set: (t: string | null | undefined) => { try { t ? localStorage.setItem(DEVICE_KEY, t) : localStorage.removeItem(DEVICE_KEY); } catch { /* private mode */ } },
+};
+
 export class ApiError extends Error {
   constructor(public status: number, message: string, public details?: unknown) { super(message); }
 }

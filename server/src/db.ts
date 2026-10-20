@@ -461,6 +461,45 @@ CREATE TABLE IF NOT EXISTS usage_alerts (
   sent_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (business_id, metric, period, threshold)
 );
+-- Two-step sign-in. A device is one signed-in browser or app; trusted devices skip the second step for 30 days.
+CREATE TABLE IF NOT EXISTS devices (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  secret_hash TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  verified_with TEXT,              -- email | passkey | reset | null (signed in while two-step sign-in was paused)
+  trusted_until TEXT,
+  last_ip TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id);
+CREATE TABLE IF NOT EXISTS login_challenges (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK (purpose IN ('login','oauth','register','passkey','add_passkey')),
+  code_hash TEXT,
+  code_sent_at TEXT,
+  sends INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  webauthn_challenge TEXT,
+  next TEXT,
+  expires_at TEXT NOT NULL,
+  done_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS passkeys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  credential_id TEXT NOT NULL UNIQUE,
+  public_key TEXT NOT NULL,
+  counter INTEGER NOT NULL DEFAULT 0,
+  transports TEXT,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT
+);
 `);
 
 export type Row = Record<string, any>;

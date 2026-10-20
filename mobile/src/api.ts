@@ -11,6 +11,11 @@ export const saveToken = async (t: string | null) => {
   else await SecureStore.deleteItemAsync(TOKEN_KEY);
 };
 
+/** Identifies this phone to the server, so a remembered device skips the emailed sign-in code. */
+const DEVICE_KEY = "slotwise_device";
+export const loadDeviceToken = () => SecureStore.getItemAsync(DEVICE_KEY);
+export const saveDeviceToken = (t: string) => SecureStore.setItemAsync(DEVICE_KEY, t);
+
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch(`${API_URL}/api${path}`, {
     method: opts.method ?? (opts.body ? "POST" : "GET"),

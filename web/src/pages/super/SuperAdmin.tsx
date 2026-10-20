@@ -58,6 +58,7 @@ function Overview() {
     <div className="stack">
       {data.storage?.persistent === false && <div className="error"><b>Data isn't being kept.</b> {data.storage.message}</div>}
       {data.storage?.persistent === true && <div className="small muted">✓ {data.storage.message}</div>}
+      {data.twoFactorEmail === false && <div className="error"><b>Two-step sign-in is paused.</b> Sign-in codes are emailed, and platform email isn't set up, so everyone without a passkey is signing in with a password only. Add a Resend or Postmark key under <Link to="/super/settings">Settings → Email</Link> to turn it on.</div>}
       <div className="grid">
         <Link to="/super/support" className="card" style={{ textDecoration: "none", color: "inherit" }}><div className="muted small">Support cases needing a reply</div><div className="stat">{data.openCases}</div></Link>
         <div className="card"><div className="muted small">Businesses</div><div className="stat">{data.businesses}</div></div>

@@ -201,6 +201,14 @@ People who choose "Hide my email" get an `@privaterelay.appleid.com` address. To
 
 On Render, add these keys under the service's **Environment** tab and it redeploys. The buttons appear automatically once their keys are set.
 
+## Two-step sign-in and passkeys
+
+Every sign-in on a device that isn't remembered needs a second step. That covers password, Google/Apple and new accounts, on the web and in the mobile app. The second step is a 6-digit code emailed to the account (10 minutes, 5 tries) or a passkey (WebAuthn, via `@simplewebauthn`).
+- **Devices.** Each signed-in browser or app is a row in `devices`. The session token carries its id, so signing a device out under **Account → Security** ends that session. "Remember this device" trusts it for 30 days. Changing or resetting a password signs out all other devices. Tokens from before this change stop working, so everyone signs in once more.
+- **Passkeys** work on their own ("Sign in with a passkey"; user verification required) or as the second step. They're tied to the domain in `PUBLIC_WEB_URL`. If you move to a new domain (such as bookwithslotwise.com), people add their passkeys again there.
+- **Alerts.** A new device signing in emails the account holder. Sign-ins, new devices and passkey changes are written to the audit log.
+- **Needs platform email.** Codes go through Resend/Postmark (**Super admin → Settings → Email**). Until that works, two-step sign-in is paused rather than locking everyone out, and the super admin overview shows a red warning. People with a passkey still use it. In demo mode the `…@demo.test` accounts skip the code.
+
 ## Customer emails and texts: each business's own accounts
 
 Everything sent to a business's customers goes out through that business's own accounts, so it comes from their address and their number, and they pay their providers directly. Slotwise doesn't meter or bill texts.

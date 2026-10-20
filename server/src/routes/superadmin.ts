@@ -11,6 +11,7 @@ import { describeSettings, saveSettings, testSettings } from "../lib/platformSet
 import { setPlan } from "../lib/platformBilling.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 import { storageStatus } from "../lib/storage.js";
+import { emailLive } from "../lib/email.js";
 import { listModels } from "../ai/models.js";
 import { issueReport, latestTriage, startTriage, supportAiAvailable } from "../ai/supportAgent.js";
 import { addReply, getCase, saveSupportSettings, sendTestNotification, serializeCase, supportSettings } from "../lib/support.js";
@@ -28,6 +29,8 @@ superRouter.get("/overview", h(() => ({
   byPlan: all("SELECT plan, COUNT(*) AS n FROM businesses GROUP BY plan"),
   sms30d: one("SELECT COUNT(*) AS n FROM sms_messages WHERE direction = 'outbound' AND status NOT IN ('failed','skipped') AND created_at >= datetime('now','-30 days')")!.n,
   storage: storageStatus(),
+  // Two-step sign-in emails codes through the platform email; without it, sign-in falls back to passwords only.
+  twoFactorEmail: emailLive(),
   openCases: one("SELECT COUNT(*) AS n FROM support_cases WHERE status = 'open'")!.n,
 })));
 

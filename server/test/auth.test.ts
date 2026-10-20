@@ -69,7 +69,10 @@ async function oauth(provider: "google" | "apple", identity: Record<string, unkn
       });
   const location = new URL(res.headers.get("location")!);
   const hash = new URLSearchParams(location.hash.slice(1));
-  return { location, authorize, token: hash.get("token"), next: hash.get("next"), error: location.searchParams.get("error") };
+  // The sign-in page then hands the challenge back (with its device token); email isn't set up here, so no second step.
+  const challenge = hash.get("challenge");
+  const resumed = challenge ? (await api("POST", "/api/auth/2fa/resume", { challengeId: challenge })).body : null;
+  return { location, authorize, token: resumed?.token ?? null, next: resumed?.next ?? null, error: location.searchParams.get("error") };
 }
 
 test("forgot password answers the same whether or not the account exists", async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { SafeAreaView, StatusBar as RNStatusBar, View, Pressable, Text } from "react-native";
+import { Platform, SafeAreaView, StatusBar as RNStatusBar, View, Pressable, Text } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { api, loadToken, saveToken } from "./src/api";
+import { api, loadDeviceToken, loadToken, saveDeviceToken, saveToken } from "./src/api";
 import { useTheme } from "./src/ui";
 import { DiscoverScreen } from "./src/screens/Discover";
 import { BusinessScreen } from "./src/screens/Business";
@@ -19,6 +19,10 @@ export type Route =
 export interface Session { user: { id: string; name: string; email: string; role: string }; businesses: { id: string; name: string; slug: string }[] }
 export interface Nav { go: (r: Route) => void; back: () => void }
 
+export interface TwoFactor { id: string; email: string; codeSent: boolean; methods: string[]; rememberDays: number }
+
+const deviceFields = async () => ({ deviceToken: (await loadDeviceToken()) ?? undefined, deviceName: `Slotwise app (${Platform.OS === "ios" ? "iPhone" : Platform.OS === "android" ? "Android" : Platform.OS})` });
+
 export default function App() {
   const t = useTheme();
   const [stack, setStack] = useState<Route[]>([{ name: "discover" }]);
@@ -32,13 +36,25 @@ export default function App() {
     });
   }, []);
 
+  const finishSignIn = async (s: Session & { token: string; deviceToken?: string }) => {
+    await saveToken(s.token);
+    if (s.deviceToken) await saveDeviceToken(s.deviceToken);
+    setSession(s);
+  };
+
   const auth = {
     session,
+    /** Returns the second step when one is needed (an emailed code); otherwise signs in. */
     signIn: async (email: string, password: string) => {
-      const s = await api<Session & { token: string }>("/auth/login", { body: { email, password } });
-      await saveToken(s.token);
-      setSession(s);
+      const res = await api<any>("/auth/login", { body: { email, password, ...(await deviceFields()) } });
+      if (res.twoFactor) return res.twoFactor as TwoFactor;
+      await finishSignIn(res);
+      return null;
     },
+    verifyCode: async (challengeId: string, code: string, remember: boolean) => {
+      await finishSignIn(await api<any>("/auth/2fa/verify", { body: { challengeId, code, remember, ...(await deviceFields()) } }));
+    },
+    resendCode: (challengeId: string) => api("/auth/2fa/send-code", { body: { challengeId } }),
     signOut: async () => { await saveToken(null); setSession(null); setStack([{ name: "discover" }]); },
   };
 

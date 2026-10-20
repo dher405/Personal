@@ -28,13 +28,20 @@ async function api(method: string, path: string, body?: unknown, token = owner) 
 }
 const settle = () => new Promise((r) => setTimeout(r, 50));
 const mailTo = (to: string) => sent.filter((m) => m.to === to);
+/** Platform email is on here, so signing in takes the emailed code too. */
+async function signIn(email: string, password: string) {
+  const first = (await api("POST", "/api/auth/login", { email, password }, "")).body;
+  const code = mailTo(email).at(-1)!.subject.match(/^(\d{6}) is your Slotwise sign-in code/)![1];
+  return (await api("POST", "/api/auth/2fa/verify", { challengeId: first.twoFactor.id, code }, "")).body.token;
+}
 
 before(async () => {
   await seed();
   server = createApp().listen(0);
   base = `http://127.0.0.1:${(server.address() as any).port}`;
-  owner = (await api("POST", "/api/auth/login", { email: "owner@demo.test", password: "demo1234" }, "")).body.token;
-  superToken = (await api("POST", "/api/auth/login", { email: "boss@slotwise.test", password: "super1234" }, "")).body.token;
+  owner = await signIn("owner@demo.test", "demo1234");
+  superToken = await signIn("boss@slotwise.test", "super1234");
+  sent.length = 0; // only the sign-in codes so far
   bid = one("SELECT id FROM businesses WHERE slug = 'riverside-music'")!.id;
 });
 after(() => { server.close(); globalThis.fetch = realFetch; });
@@ -111,7 +118,9 @@ test("notification settings: chosen addresses, switches, and a test email", asyn
 test("a business only sees its own cases", async () => {
   const other = await api("GET", `/api/admin/${bid}/support`);
   assert.ok(other.body.cases.length >= 3);
-  const stranger = await api("POST", "/api/auth/register", { name: "Other Owner", email: "other@biz.test", password: "password123", businessName: "Other Studio", timezone: "America/New_York" }, "");
+  const signup = await api("POST", "/api/auth/register", { name: "Other Owner", email: "other@biz.test", password: "password123", businessName: "Other Studio", timezone: "America/New_York" }, "");
+  const code = mailTo("other@biz.test").at(-1)!.subject.slice(0, 6);
+  const stranger = await api("POST", "/api/auth/2fa/verify", { challengeId: signup.body.twoFactor.id, code }, "");
   const otherBid = stranger.body.businesses?.[0]?.id ?? one("SELECT business_id FROM business_members m JOIN users u ON u.id = m.user_id WHERE u.email = 'other@biz.test'")!.business_id;
   assert.equal((await api("GET", `/api/admin/${otherBid}/support/${caseId}`, undefined, stranger.body.token)).status, 404);
   assert.equal((await api("GET", `/api/admin/${bid}/support/${caseId}`, undefined, stranger.body.token)).status, 403);
