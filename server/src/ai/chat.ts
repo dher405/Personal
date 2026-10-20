@@ -9,6 +9,7 @@ import { toolsFor, type AiTool, type ToolContext } from "./tools.js";
 import { hasCapacity, recordUse } from "../lib/usage.js";
 import { HttpError } from "../lib/errors.js";
 import { smsReady } from "../lib/channels.js";
+import { effortFor, supportsFallback } from "./models.js";
 
 type MessageParam = Anthropic.Beta.BetaMessageParam;
 
@@ -114,17 +115,19 @@ export async function chat(opts: {
   const ctx: ToolContext = { business, admin: opts.admin, events: [] };
   let reply = "";
 
+  // The super admin picks the model; send only the options that model accepts (effort level, refusal fallback).
+  const model = config.ai.model;
+  const effort = await effortFor(anthropic(), model, config.ai.effort);
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const response = await anthropic().beta.messages.create({
-      model: config.ai.model,
+      model,
       max_tokens: 16000,
       system: systemPrompt(kind, business),
       tools: apiTools,
       messages,
-      output_config: { effort: config.ai.effort },
+      ...(effort ? { output_config: { effort: effort as "low" | "medium" | "high" | "xhigh" | "max" } } : {}),
       cache_control: { type: "ephemeral" },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
+      ...(supportsFallback(model) ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
     });
 
     messages.push({ role: "assistant", content: response.content as Anthropic.Beta.BetaContentBlockParam[] });

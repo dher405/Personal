@@ -11,7 +11,7 @@ import { badRequest } from "./errors.js";
  * variable that serves as a fallback, so existing Render setups keep working.
  */
 
-export interface SettingField { name: string; label: string; secret?: boolean; help?: string; placeholder?: string; options?: string[]; multiline?: boolean }
+export interface SettingField { name: string; label: string; secret?: boolean; help?: string; placeholder?: string; options?: string[]; multiline?: boolean; /** Shown as a list of the models the saved key can use. */ modelPicker?: boolean }
 export interface SettingGroup { id: string; title: string; description: string; fields: SettingField[]; urls?: (api: string) => { label: string; url: string }[]; testable?: boolean }
 
 export const SETTING_GROUPS: SettingGroup[] = [
@@ -45,7 +45,7 @@ export const SETTING_GROUPS: SettingGroup[] = [
     description: "Powers the booking chat and admin assistant. Create a key at console.anthropic.com → API Keys.",
     fields: [
       { name: "ANTHROPIC_API_KEY", label: "API key", secret: true, placeholder: "sk-ant-…" },
-      { name: "AI_MODEL", label: "Model", placeholder: "claude-opus-5-5" },
+      { name: "AI_MODEL", label: "Model", placeholder: "claude-opus-5-5", modelPicker: true, help: "Listed live from Anthropic for your key. The rough cost assumes a typical booking-chat reply (about 5,000 tokens in, 500 out)" },
       { name: "AI_EFFORT", label: "Effort", options: ["low", "medium", "high"], help: "Low is fast and cheap, and is plenty for booking chat" },
     ],
   },

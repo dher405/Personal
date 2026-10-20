@@ -11,6 +11,7 @@ import { describeSettings, saveSettings, testSettings } from "../lib/platformSet
 import { setPlan } from "../lib/platformBilling.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 import { storageStatus } from "../lib/storage.js";
+import { listModels } from "../ai/models.js";
 import { addReply, getCase, saveSupportSettings, sendTestNotification, serializeCase, supportSettings } from "../lib/support.js";
 
 /** Platform-wide controls. Mounted behind requireSuperAdmin. Business-level actions reuse /api/admin/:bid. */
@@ -193,6 +194,15 @@ superRouter.put("/settings", h((req) => {
 }));
 
 superRouter.post("/settings/test/:group", h((req) => testSettings(req.params.group as string)));
+
+/** The models the saved Anthropic key can use, fetched fresh each time, with prices for the model picker. */
+superRouter.get("/settings/ai-models", h(async () => {
+  try {
+    return { models: await listModels(), current: config.ai.model };
+  } catch (err) {
+    throw badRequest((err as Error).message);
+  }
+}));
 
 superRouter.get("/plans", h(() => getPlans()));
 

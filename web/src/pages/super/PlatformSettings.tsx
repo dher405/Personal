@@ -18,6 +18,47 @@ function Copy({ value }: { value: string }) {
   );
 }
 
+const usd = (n: number) => `$${Number.isInteger(n) ? n.toLocaleString("en-US") : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const perM = (n: number) => `$${n < 1 ? n.toFixed(2) : n % 1 ? n.toFixed(2) : n}`;
+
+/**
+ * The AI model as a list of the models the saved key can use, fetched fresh from Anthropic each time the page opens,
+ * with each model's price and a rough cost per 1,000 booking-chat replies.
+ */
+function ModelPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const { data, error, loading, reload } = useApi<any>("/super/settings/ai-models");
+  if (error) {
+    return (
+      <>
+        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="claude-opus-5-5" />
+        <span className="small" style={{ color: "var(--bad)" }}>Couldn't load the model list: {error} <button type="button" className="link small" onClick={reload}>Try again</button></span>
+      </>
+    );
+  }
+  if (!data) return <select disabled><option>{loading ? "Loading models from Anthropic…" : "…"}</option></select>;
+  const models: any[] = data.models;
+  const known = models.some((m) => m.id === value);
+  const chosen = models.find((m) => m.id === (value || data.current));
+  return (
+    <>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">(default: Claude Opus 5.5)</option>
+        {value && !known && <option value={value}>{value} (not available to this key)</option>}
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name}: {m.price ? `${perM(m.price.input)} in / ${perM(m.price.output)} out per M tokens · ≈ ${usd(m.per1000Replies)} per 1,000 replies` : "price not listed"}
+          </option>
+        ))}
+      </select>
+      {chosen && (
+        <span className="small muted">
+          <code>{chosen.id}</code>{chosen.price?.note ? ` · ${chosen.price.note}` : ""}{chosen.effortLevels.length ? ` · effort ${chosen.effortLevels.join(", ")}` : " · no effort setting"}
+        </span>
+      )}
+    </>
+  );
+}
+
 /** Super admin → Settings: every integration's keys and the webhook addresses to give each provider. */
 export function PlatformSettings() {
   const { data, setData } = useApi<any>("/super/settings");
@@ -74,9 +115,11 @@ function Group({ group: g, onSaved }: { group: any; onSaved: (groups: any[]) => 
           const current = values[f.name] ?? (f.secret ? "" : f.value);
           const set = (v: string) => setValues({ ...values, [f.name]: v });
           return (
-            <label key={f.name} style={f.multiline ? { gridColumn: "1 / -1" } : undefined}>
+            <label key={f.name} style={f.multiline || f.modelPicker ? { gridColumn: "1 / -1" } : undefined}>
               {label}
-              {f.options ? (
+              {f.modelPicker ? (
+                <ModelPicker value={current} onChange={set} />
+              ) : f.options ? (
                 <select value={current} onChange={(e) => set(e.target.value)}>
                   <option value="">(default)</option>
                   {f.options.map((o: string) => <option key={o} value={o}>{o}</option>)}

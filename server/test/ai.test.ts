@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { DateTime } from "luxon";
 
+const effort = (levels: string[]) => ({ supported: levels.length > 0, ...Object.fromEntries(["low", "medium", "high", "xhigh", "max"].map((l) => [l, { supported: levels.includes(l) }])) });
+const MODELS = [
+  { type: "model", id: "claude-opus-5-5", display_name: "Claude Opus 5.5", created_at: "2026-09-01T00:00:00Z", capabilities: { effort: effort(["low", "medium", "high", "xhigh", "max"]) } },
+  { type: "model", id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5", created_at: "2026-09-15T00:00:00Z", capabilities: { effort: effort(["low", "medium", "high", "xhigh", "max"]) } },
+  { type: "model", id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5", created_at: "2025-10-01T00:00:00Z", capabilities: { effort: effort([]) } },
+  { type: "model", id: "claude-future-9", display_name: "Claude Future 9", created_at: "2027-01-01T00:00:00Z", capabilities: { effort: effort(["medium"]) } },
+];
+
 // A stand-in for the Messages API: first call asks for a tool, second call answers in text.
 const requests: any[] = [];
 let fake: Server;
@@ -11,6 +19,15 @@ const fakeReady = new Promise<string>((resolve) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
+      // Models API: what the key can use, with capabilities (Haiku 4.5 has no effort setting).
+      const url = new URL(req.url!, "http://x");
+      if (req.method === "GET" && url.pathname.startsWith("/v1/models")) {
+        res.setHeader("content-type", "application/json");
+        const id = url.pathname.split("/v1/models/")[1];
+        const found = id ? MODELS.find((m) => m.id === id) : null;
+        if (id && !found) { res.statusCode = 404; return res.end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: `model: ${id}` } })); }
+        return res.end(JSON.stringify(found ?? { data: MODELS, has_more: false, first_id: MODELS[0].id, last_id: MODELS.at(-1)!.id }));
+      }
       const parsed = JSON.parse(body);
       requests.push({ body: parsed, beta: req.headers["anthropic-beta"] });
       const last = parsed.messages.at(-1);
@@ -93,4 +110,38 @@ test("admin tools exclude refunds", () => {
   const names = toolsFor("admin").map((t) => t.name);
   assert.ok(names.includes("update_service") && names.includes("reschedule_booking"));
   assert.ok(!names.some((n) => n.includes("refund")));
+});
+
+test("model list: live from the Models API, newest first, with prices and a rough cost per 1,000 replies", async () => {
+  const { listModels } = await import("../src/ai/models.js");
+  const models = await listModels();
+  assert.deepEqual(models.map((m) => m.id), ["claude-future-9", "claude-haiku-5-5", "claude-opus-5-5", "claude-haiku-4-5"]);
+  const haiku = models.find((m) => m.id === "claude-haiku-5-5")!;
+  assert.deepEqual([haiku.price!.input, haiku.price!.output], [0.1, 0.5]);
+  assert.equal(haiku.per1000Replies, 0.75);
+  assert.equal(models.find((m) => m.id === "claude-opus-5-5")!.per1000Replies, 30);
+  assert.equal(models.find((m) => m.id === "claude-future-9")!.price, null, "unknown models are listed without a price");
+  assert.deepEqual(models.find((m) => m.id === "claude-haiku-4-5")!.effortLevels, []);
+});
+
+test("each model gets only the options it accepts", async () => {
+  const { saveSettings } = await import("../src/lib/platformSettings.js");
+  const lastRequest = () => requests.at(-1).body;
+  try {
+    saveSettings({ AI_MODEL: "claude-haiku-5-5" });
+    await chat({ kind: "customer", business, message: "Hi" });
+    assert.equal(lastRequest().model, "claude-haiku-5-5");
+    assert.equal(lastRequest().fallbacks, undefined, "Haiku has no server-side fallback");
+    assert.equal(lastRequest().output_config.effort, "low");
+
+    saveSettings({ AI_MODEL: "claude-haiku-4-5" });
+    await chat({ kind: "customer", business, message: "Hi" });
+    assert.equal(lastRequest().output_config, undefined, "no effort setting on Haiku 4.5");
+
+    saveSettings({ AI_MODEL: "claude-future-9" });
+    await chat({ kind: "customer", business, message: "Hi" });
+    assert.equal(lastRequest().output_config.effort, "medium", "falls back to a level the model supports");
+  } finally {
+    saveSettings({ AI_MODEL: null });
+  }
 });
