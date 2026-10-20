@@ -6,7 +6,7 @@ import { findSlotsLive, freeInConnectedCalendars } from "../lib/availability.js"
 import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, serializeBooking, startPayment } from "../lib/bookings.js";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
-import { getPlan } from "../lib/plans.js";
+import { getPlan, getPlans } from "../lib/plans.js";
 import { meter } from "../lib/usage.js";
 import { aiAvailable, chat } from "../ai/chat.js";
 import { customerIcs } from "../lib/ics.js";
@@ -31,6 +31,12 @@ publicRouter.get("/businesses", h((req) => {
   const q = `%${String(req.query.q ?? "").trim()}%`;
   return all("SELECT name, slug, category, description, address FROM businesses WHERE suspended = 0 AND (name LIKE ? OR category LIKE ?) ORDER BY name LIMIT 50", q, q);
 }));
+
+/** Plan prices for the marketing page, straight from what the super admin set in Plans & fees. */
+publicRouter.get("/plans", h(() => getPlans().map((p) => ({
+  id: p.id, name: p.name, monthlyPriceCents: p.monthlyPriceCents, bookingsPerMonth: p.bookingsPerMonth,
+  maxStaff: p.maxStaff, aiChat: p.aiChat, aiMessagesPerMonth: p.aiMessagesPerMonth,
+}))));
 
 publicRouter.get("/businesses/:slug", h((req) => {
   const b = businessBySlug(req.params.slug as string);

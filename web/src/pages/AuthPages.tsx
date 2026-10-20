@@ -21,7 +21,8 @@ export function Login() {
         <h1>Sign in</h1>
         {providerError && <div className="error">{providerError}</div>}
         {params.get("reset") && <div className="notice">Password updated. You're signed in on this device only.</div>}
-        <SocialButtons next="/me" />
+        {/* The home page's "Business sign in" passes next=/admin so owners land in their admin. */}
+        <SocialButtons next={params.get("next")?.startsWith("/") ? params.get("next")! : "/me"} />
         {error && <div className="error">{error}</div>}
         <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
         <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
