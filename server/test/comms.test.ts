@@ -116,3 +116,12 @@ test("Twilio settings: test mode only off-production, switching it off turns tex
   assert.ok(tw.body.sms.webhooks.incoming.endsWith(`/api/webhooks/twilio/${bid}/sms`));
   assert.equal((await api("POST", `/api/admin/${bid}/sms/simulate`, { from: "+15550001111", body: "C" })).status, 403, "simulator is test mode only");
 });
+
+test("an unreachable mail server gives a plain explanation, not a raw network error", async () => {
+  await api("PUT", `/api/admin/${bid}/communications/email`, {
+    provider: "smtp", fromName: "Riverside", fromEmail: "dana@gmail.test", smtpHost: "127.0.0.1", smtpPort: 1, smtpSecurity: "ssl", smtpUser: "dana@gmail.test", smtpPass: "pw",
+  });
+  const res = await api("POST", `/api/admin/${bid}/communications/email/test`, {});
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /Couldn't connect to 127\.0\.0\.1:1\. .*blocking outgoing email ports/);
+});

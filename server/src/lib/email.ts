@@ -60,13 +60,35 @@ function smtpTransport(e: EmailChannel) {
   });
 }
 
+const UNREACHABLE = new Set(["ETIMEDOUT", "ENETUNREACH", "ECONNREFUSED", "EHOSTUNREACH", "ECONNRESET", "ESOCKET", "ECONNECTION"]);
+
+/**
+ * Mail servers are tried address by address (IPv4 first), and the error reported is the last one, often a
+ * misleading IPv6 "ENETUNREACH". When nothing could be reached, say so plainly: the usual cause is the
+ * hosting provider blocking outgoing mail ports (Render's free plan blocks 25, 465 and 587).
+ */
+function explainSmtpError(err: any, e: EmailChannel): Error {
+  const code = String(err?.code ?? "");
+  const where = `${e.smtpHost}:${e.smtpPort ?? (e.smtpSecurity === "ssl" ? 465 : 587)}`;
+  if (UNREACHABLE.has(code) || /ENETUNREACH|ETIMEDOUT|ECONNREFUSED|timeout/i.test(String(err?.message))) {
+    return new Error(`Couldn't connect to ${where}. The server Slotwise runs on may be blocking outgoing email ports (some hosts, including Render's free plan, block them). Use Resend instead, or ask your Slotwise administrator. (${code || err?.message})`);
+  }
+  if (code === "EAUTH") return new Error(`${e.smtpHost} didn't accept the user name and password. For Gmail, Yahoo and iCloud use an app password, not your normal password. (${err.response ?? err.message})`);
+  if (code === "EENVELOPE" || /sender|from address/i.test(String(err?.response))) return new Error(`${e.smtpHost} wouldn't send from ${e.fromEmail}. Use the address of the account you signed in with, or an alias it's allowed to send as. (${err.response ?? err.message})`);
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 async function deliver(e: EmailChannel, msg: Email, fromName: string) {
   const from = `${quoteName(e.fromName || fromName)} <${e.fromEmail}>`;
   if (e.provider === "smtp") {
-    await smtpTransport(e).sendMail({
-      from, to: msg.to, replyTo: e.replyTo || undefined, subject: msg.subject, text: msg.text, html: msg.html,
-      attachments: msg.attachments?.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
-    });
+    try {
+      await smtpTransport(e).sendMail({
+        from, to: msg.to, replyTo: e.replyTo || undefined, subject: msg.subject, text: msg.text, html: msg.html,
+        attachments: msg.attachments?.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
+      });
+    } catch (err) {
+      throw explainSmtpError(err, e);
+    }
     return;
   }
   const res = await fetch("https://api.resend.com/emails", {
