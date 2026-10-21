@@ -4,6 +4,7 @@ import { config, installSettingsReader } from "../config.js";
 import { all, run } from "../db.js";
 import { decryptJson, encryptJson } from "./crypto.js";
 import { badRequest } from "./errors.js";
+import { syncStripeMode } from "./stripeMode.js";
 
 /**
  * Integration keys the super admin manages on Super admin → Settings. Stored encrypted
@@ -37,6 +38,8 @@ export const SETTING_GROUPS: SettingGroup[] = [
     fields: [
       { name: "STRIPE_SECRET_KEY", label: "Secret key", secret: true, placeholder: "sk_live_… or sk_test_…" },
       { name: "STRIPE_WEBHOOK_SECRET", label: "Webhook signing secret", secret: true, placeholder: "whsec_…", help: "Add the webhook URL above in Stripe → Developers → Webhooks with events checkout.session.completed, customer.subscription.updated, customer.subscription.deleted, then copy its signing secret" },
+      { name: "STRIPE_TAX", label: "Charge tax (Stripe Tax)", options: ["off", "on"], placeholder: "off", help: "on = Stripe works out and adds sales tax / VAT on plans, packs and top-ups from each business's billing address. Turn on Stripe Tax in Stripe first (Settings → Tax: your business address and where you're registered)" },
+      { name: "STRIPE_TAX_BEHAVIOR", label: "Plan prices", options: ["exclusive", "inclusive"], placeholder: "exclusive", help: "exclusive = tax is added on top ($29 + tax); inclusive = $29 already includes tax" },
     ],
     urls: (api) => [{ label: "Webhook URL", url: `${api}/api/webhooks/stripe` }],
   },
@@ -189,6 +192,7 @@ export function saveSettings(values: Record<string, string | null>) {
     }
   }
   load();
+  if ("STRIPE_SECRET_KEY" in values) syncStripeMode();
   // New email settings: an earlier failure (e.g. sent from an unverified address) no longer applies.
   if (Object.keys(values).some((k) => SETTING_GROUPS.find((g) => g.id === "email")!.fields.some((f) => f.name === k))) {
     run("DELETE FROM platform_settings WHERE key = 'email_failure'");
@@ -213,9 +217,22 @@ export async function testSettings(group: string, testRecipient?: string): Promi
   try {
     if (group === "stripe") {
       if (!config.stripe.secretKey) return { ok: false, message: "No secret key saved" };
-      const account = await new Stripe(config.stripe.secretKey).accounts.retrieveCurrent();
-      const mode = config.stripe.secretKey.startsWith("sk_live") ? "live" : "test";
-      return { ok: true, message: `Connected to ${account.settings?.dashboard?.display_name ?? account.email ?? account.id} (${mode} mode)${account.charges_enabled ? "" : ". Note: this account can't take payments yet; finish activating it in Stripe"}` };
+      const client = new Stripe(config.stripe.secretKey);
+      const account = await client.accounts.retrieveCurrent();
+      const mode = config.stripe.mode;
+      const notes: string[] = [];
+      let ok = true;
+      if (!account.charges_enabled) { ok = mode === "test"; notes.push("this account can't take payments yet: finish activating it in Stripe"); }
+      if (!config.stripe.webhookSecret) { ok = false; notes.push("add the webhook signing secret"); }
+      // The "Manage billing" button needs the customer portal saved once in this mode.
+      const portals = await client.billingPortal.configurations.list({ limit: 1 }).catch(() => null);
+      if (portals && !portals.data.length) { ok = false; notes.push(`save the customer portal once in Stripe (Settings → Billing → Customer portal, in ${mode} mode)`); }
+      if (config.stripe.tax) {
+        const tax = await client.tax.settings.retrieve().catch((err: Error) => ({ status: "error", error: err.message }) as any);
+        if (tax.status === "active") notes.push(`Stripe Tax is on (prices ${config.stripe.taxBehavior === "inclusive" ? "include" : "plus"} tax)`);
+        else { ok = false; notes.push(`"Charge tax" is on but Stripe Tax isn't ready in ${mode} mode: in Stripe open Settings → Tax, add your business address and where you collect tax${tax.error ? ` (${tax.error})` : ""}`); }
+      } else notes.push("tax isn't being charged (Charge tax is off)");
+      return { ok, message: `Connected to ${account.settings?.dashboard?.display_name ?? account.email ?? account.id} (${mode} mode). ${notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ")}.` };
     }
     if (group === "email") {
       if (config.email.resendApiKey) {

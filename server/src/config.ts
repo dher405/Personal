@@ -77,6 +77,11 @@ export const config = {
     return {
       secretKey: v("STRIPE_SECRET_KEY"),
       webhookSecret: v("STRIPE_WEBHOOK_SECRET"),
+      /** Stripe Tax on what businesses pay the platform (plans, packs, top-ups). */
+      tax: v("STRIPE_TAX", "off") === "on",
+      /** "exclusive": tax is added on top of plan prices; "inclusive": plan prices already include it. */
+      taxBehavior: (v("STRIPE_TAX_BEHAVIOR", "exclusive") === "inclusive" ? "inclusive" : "exclusive") as "inclusive" | "exclusive",
+      mode: v("STRIPE_SECRET_KEY").includes("_live_") ? "live" : "test",
     };
   },
   get email() {

@@ -1,6 +1,6 @@
 import type Stripe from "stripe";
 import { config } from "../config.js";
-import { audit, one, run, Row } from "../db.js";
+import { all, audit, one, run, Row } from "../db.js";
 import { stripe } from "../payments/stripe.js";
 import type { AuthUser } from "./auth.js";
 import { badRequest } from "./errors.js";
@@ -55,6 +55,7 @@ export async function startPlanCheckout(business: Row, planId: string, user: Aut
         metadata: { businessId: business.id, planId: plan.id },
         proration_behavior: "create_prorations",
         cancel_at_period_end: false, // choosing a paid plan undoes a scheduled move to Starter
+        ...(config.stripe.tax ? { automatic_tax: { enabled: true } } : {}),
       });
       setPlan(business.id, plan.id, "active", actor);
       setPlanEnd(business.id, null, actor);
@@ -69,10 +70,35 @@ export async function startPlanCheckout(business: Row, planId: string, user: Aut
     line_items: [{ quantity: 1, price_data: planPriceData(plan.id) as Stripe.Checkout.SessionCreateParams.LineItem.PriceData }],
     metadata: { businessId: business.id, planId: plan.id },
     subscription_data: { metadata: { businessId: business.id, planId: plan.id } },
+    ...checkoutTax(!!business.platform_customer_id),
     success_url: `${returnUrl}?subscribed=1`,
     cancel_url: returnUrl,
   });
   return { applied: false, url: session.url! };
+}
+
+/**
+ * New checkouts and plan changes pick up Stripe Tax automatically; this turns it on for subscriptions that started
+ * before tax was switched on, so their next invoice includes tax. Stripe needs each customer's address for that;
+ * any it can't do are reported (they're asked for it when they next update their card in Manage billing).
+ */
+export async function enableTaxOnSubscriptions() {
+  if (!config.stripe.secretKey) throw badRequest("Stripe isn't connected");
+  if (!config.stripe.tax) throw badRequest("Turn on \"Charge tax\" under Settings → Stripe first");
+  const done: string[] = [];
+  const failed: { business: string; error: string }[] = [];
+  for (const b of all("SELECT id, name, platform_subscription_id FROM businesses WHERE platform_subscription_id IS NOT NULL ORDER BY name")) {
+    try {
+      const sub = await stripe().subscriptions.retrieve(b.platform_subscription_id);
+      if (sub.status === "canceled") continue;
+      if (!sub.automatic_tax?.enabled) await stripe().subscriptions.update(sub.id, { automatic_tax: { enabled: true } });
+      done.push(b.name);
+    } catch (err) {
+      failed.push({ business: b.name, error: (err as Error).message });
+    }
+  }
+  audit({ label: "superadmin" }, null, "billing.tax_enabled", { done: done.length, failed: failed.length });
+  return { done, failed };
 }
 
 /** Undo a scheduled move to Starter: the paid plan carries on renewing as before. */
@@ -103,7 +129,25 @@ function planPriceData(planId: string) {
     currency: "usd",
     unit_amount: plan.monthlyPriceCents,
     recurring: { interval: "month" as const },
-    product_data: { name: `Slotwise ${plan.name}` },
+    product_data: { name: `Slotwise ${plan.name}`, tax_code: SAAS_TAX_CODE },
+    tax_behavior: config.stripe.taxBehavior,
+  };
+}
+
+/** Stripe's tax code for software as a service (business use). */
+export const SAAS_TAX_CODE = "txcd_10103001";
+
+/**
+ * Checkout options when tax is on: Stripe Tax works out the tax from the billing address it collects, and
+ * businesses can enter a tax ID (VAT, GST…) so it shows on their invoices.
+ */
+export function checkoutTax(hasCustomer: boolean): Partial<Stripe.Checkout.SessionCreateParams> {
+  if (!config.stripe.tax) return {};
+  return {
+    automatic_tax: { enabled: true },
+    billing_address_collection: "required",
+    tax_id_collection: { enabled: true },
+    ...(hasCustomer ? { customer_update: { address: "auto", name: "auto" } } : {}),
   };
 }
 

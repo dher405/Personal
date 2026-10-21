@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { config } from "../config.js";
 import { all, audit, newId, one, run, Row } from "../db.js";
 import { stripe } from "../payments/stripe.js";
+import { checkoutTax, SAAS_TAX_CODE } from "./platformBilling.js";
 import type { AuthUser } from "./auth.js";
 import { sendEmail } from "./email.js";
 import { badRequest } from "./errors.js";
@@ -104,11 +105,14 @@ async function chargeAutoTopUp(creditId: string) {
       description: `Auto top-up: ${credit.quantity} ${METRIC_LABEL[credit.metric as Metric]} (${credit.period})`,
       metadata: { businessId: business.id, creditId },
       subscription: business.platform_subscription_id ?? undefined,
+      // Taxed like the plan when it's billed (the subscription's invoices use Stripe Tax when it's on).
+      tax_behavior: config.stripe.taxBehavior, tax_code: SAAS_TAX_CODE,
     });
     // A plan that's set to end gets no further invoice, so bill the top-up now with the plan's card.
     if (business.plan_ends_at && business.platform_subscription_id) {
       const invoice = await stripe().invoices.create({
         customer: business.platform_customer_id, subscription: business.platform_subscription_id, pending_invoice_items_behavior: "include",
+        ...(config.stripe.tax ? { automatic_tax: { enabled: true } } : {}),
       });
       await stripe().invoices.finalizeInvoice(invoice.id!);
       await stripe().invoices.pay(invoice.id!);
@@ -132,7 +136,11 @@ export async function buyPacks(business: Row, packId: string, packs: number, use
     mode: "payment",
     customer: business.platform_customer_id ?? undefined,
     customer_email: business.platform_customer_id ? undefined : user.email,
-    line_items: [{ quantity: packs, price_data: { currency: "usd", unit_amount: pack.priceCents, product_data: { name: `${pack.quantity} extra ${METRIC_LABEL[pack.metric]}` } } }],
+    line_items: [{ quantity: packs, price_data: {
+      currency: "usd", unit_amount: pack.priceCents, tax_behavior: config.stripe.taxBehavior,
+      product_data: { name: `${pack.quantity} extra ${METRIC_LABEL[pack.metric]}`, tax_code: SAAS_TAX_CODE },
+    } }],
+    ...checkoutTax(!!business.platform_customer_id),
     metadata: { kind: "usage_pack", businessId: business.id, packId, packs: String(packs) },
     success_url: `${billingUrl(business)}?pack=1`,
     cancel_url: billingUrl(business),

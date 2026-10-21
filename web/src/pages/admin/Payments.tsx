@@ -15,6 +15,7 @@ export function Payments() {
     locationId: sum.squareLocationId, squareEnv: sum.squareEnv,
     clientId: sum.paypalClientId, paypalEnv: sum.paypalEnv, webhookId: sum.paypalWebhookId,
   });
+  const [stripeTax, setStripeTax] = useState(!!sum.stripeTax);
   const [test, setTest] = useState<{ ok: boolean; message: string } | null>(null);
   const action = useAction();
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
@@ -23,7 +24,7 @@ export function Payments() {
   const save = () => action.run(async () => {
     setTest(null);
     const body: any = { provider };
-    if (provider === "stripe") Object.assign(body, { secretKey: f.stripeKey, webhookSecret: f.stripeWebhook });
+    if (provider === "stripe") Object.assign(body, { secretKey: f.stripeKey, webhookSecret: f.stripeWebhook, tax: stripeTax });
     if (provider === "square") Object.assign(body, { accessToken: f.squareToken, locationId: f.locationId, squareEnv: f.squareEnv, webhookKey: f.squareWebhook });
     if (provider === "paypal") Object.assign(body, { clientId: f.clientId, clientSecret: f.clientSecret, paypalEnv: f.paypalEnv, webhookId: f.webhookId });
     await api(`/admin/${biz.id}/payment-provider`, { method: "PUT", body });
@@ -65,6 +66,11 @@ export function Payments() {
               <label>Secret key<input type="password" autoComplete="off" value={f.stripeKey ?? ""} onChange={set("stripeKey")} placeholder={saved(sum.stripeKey, "sk_live_…")} /></label>
               <label>Webhook signing secret<input type="password" autoComplete="off" value={f.stripeWebhook ?? ""} onChange={set("stripeWebhook")} placeholder={saved(sum.stripeWebhookSecret, "whsec_…")} /></label>
             </div>
+            <label className="inline">
+              <input type="checkbox" checked={stripeTax} onChange={(e) => setStripeTax(e.target.checked)} />
+              Add sales tax at checkout (Stripe Tax)
+            </label>
+            <p className="small muted" style={{ margin: 0 }}>Stripe works out the tax from the customer's address and adds it on top of your price. Set up Stripe Tax in your own Stripe account first (<a href="https://dashboard.stripe.com/settings/tax" target="_blank" rel="noreferrer">Stripe → Settings → Tax</a>), then click Test connection. Whether your services are taxable depends on where you are; check with your accountant.</p>
           </div>
         )}
 

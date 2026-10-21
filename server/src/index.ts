@@ -6,12 +6,15 @@ import { runSeriesReminders } from "./lib/series.js";
 import { seed } from "./seed.js";
 import { db } from "./db.js";
 import { storageStatus } from "./lib/storage.js";
+import { syncStripeMode } from "./lib/stripeMode.js";
 
 const storage = storageStatus();
 console[storage.persistent === false ? "warn" : "log"](`${storage.persistent === false ? "WARNING: " : ""}${storage.message}`);
 
 // Demo deployments start with the sample business and logins (safe to re-run).
 if (config.demoMode) await seed();
+// Moving between Stripe test and live keys (also when the key is changed in Render's environment).
+syncStripeMode();
 
 const server = createApp().listen(config.port, () => {
   console.log(`Slotwise listening on port ${config.port} (public URL ${config.webUrl})`);

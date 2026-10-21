@@ -26,6 +26,8 @@ export function stripeFor(business: Row): Stripe {
   return clientFor(cfg.stripeSecretKey);
 }
 
+const stripeTaxOn = (business: Row) => !!decryptJson<{ stripeTax?: boolean }>(business.payment_config).stripeTax;
+
 export const stripeProvider: PaymentProvider = {
   name: "stripe",
 
@@ -37,12 +39,15 @@ export const stripeProvider: PaymentProvider = {
         line_items: [{
           quantity: 1,
           price_data: {
+            ...(stripeTaxOn(req.business) ? { tax_behavior: "exclusive" as const } : {}),
             currency: req.currency.toLowerCase(),
             unit_amount: req.amountCents,
             product_data: { name: req.description },
           },
         }],
         payment_intent_data: { metadata: { paymentId: req.payment.id } },
+        // The business can have Stripe Tax add sales tax on top of its prices (it sets this up in its own Stripe account).
+        ...(stripeTaxOn(req.business) ? { automatic_tax: { enabled: true }, billing_address_collection: "required" as const } : {}),
         metadata: { paymentId: req.payment.id, businessId: req.business.id },
         success_url: `${req.successUrl}${req.successUrl.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: req.cancelUrl,

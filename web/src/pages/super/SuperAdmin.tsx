@@ -230,7 +230,36 @@ function Plans() {
       </div>
       <p className="small muted">Price changes apply to new subscriptions and plan switches; existing Stripe subscriptions keep their price until changed. Allowance changes apply immediately.</p>
       <p className="small muted"><b>Hidden plans</b> (such as a tester plan) don't appear on the home page or on a business's Plan &amp; billing page, and businesses can't choose them. Give one to a business yourself under <b>Businesses</b> → the business → Plan. A business already on a hidden plan keeps it.</p>
+      <TaxBox />
       <Packs />
+    </div>
+  );
+}
+
+/** Whether tax is added to what businesses pay, and a one-off to add it to subscriptions from before it was on. */
+function TaxBox() {
+  const { data } = useApi<any>("/super/billing/tax");
+  const action = useAction();
+  const [result, setResult] = useState<any>(null);
+  if (!data) return null;
+  return (
+    <div className="stack" style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+      <h3 style={{ margin: 0 }}>Tax</h3>
+      {data.on ? (
+        <p className="small">✅ Stripe Tax adds sales tax / VAT to plans, packs and top-ups ({data.behavior === "inclusive" ? "your prices already include it" : "on top of your prices"}), based on each business's billing address. Stripe is in <b>{data.mode}</b> mode.</p>
+      ) : (
+        <p className="small">Tax isn't being charged. Turn it on under <Link to="/super/settings">Settings → Stripe → Charge tax</Link> after setting up Stripe Tax in Stripe.</p>
+      )}
+      {action.error && <div className="error">{action.error}</div>}
+      {result && (
+        <div className={result.failed.length ? "error small" : "notice small"}>
+          Tax turned on for {result.done.length} subscription{result.done.length === 1 ? "" : "s"}.
+          {result.failed.map((f: any) => <div key={f.business}>{f.business}: {f.error}</div>)}
+        </div>
+      )}
+      {data.on && data.stripe && (
+        <div><button disabled={action.busy} onClick={() => action.run(async () => setResult(await api("/super/billing/tax/existing", { method: "POST" })))}>Add tax to existing subscriptions</button></div>
+      )}
     </div>
   );
 }

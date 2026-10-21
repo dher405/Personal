@@ -8,7 +8,7 @@ import { h, parse } from "../lib/http.js";
 import { getPacks, getPlan, getPlans, savePacks, savePlans } from "../lib/plans.js";
 import { grantCredits, usageFor } from "../lib/usage.js";
 import { describeSettings, saveSettings, testSettings } from "../lib/platformSettings.js";
-import { setPlan } from "../lib/platformBilling.js";
+import { enableTaxOnSubscriptions, setPlan } from "../lib/platformBilling.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 import { storageStatus } from "../lib/storage.js";
 import { emailLive, platformEmailFailure } from "../lib/email.js";
@@ -285,6 +285,9 @@ superRouter.get("/settings/ai-models", h(async (req) => {
 superRouter.get("/plans", h(() => getPlans()));
 
 superRouter.get("/packs", h(() => getPacks()));
+
+superRouter.get("/billing/tax", h(() => ({ on: config.stripe.tax, behavior: config.stripe.taxBehavior, stripe: !!config.stripe.secretKey, mode: config.stripe.mode })));
+superRouter.post("/billing/tax/existing", h(() => enableTaxOnSubscriptions()));
 
 superRouter.put("/packs", h((req) => {
   const packs = parse(z.array(z.object({

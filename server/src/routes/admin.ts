@@ -385,6 +385,7 @@ function paymentSummary(b: Record<string, any>, cfg: Record<string, any>) {
   return {
     stripeKey: mask(cfg.stripeSecretKey),
     stripeWebhookSecret: mask(cfg.stripeWebhookSecret),
+    stripeTax: !!cfg.stripeTax,
     squareConfigured: !!cfg.accessToken && !!cfg.locationId,
     squareToken: mask(cfg.accessToken),
     squareLocationId: cfg.locationId ?? "",
@@ -410,7 +411,7 @@ adminRouter.put("/payment-provider", h(async (req) => {
   const body = parse(z.discriminatedUnion("provider", [
     z.object({ provider: z.literal("none") }),
     z.object({ provider: z.literal("mock") }),
-    z.object({ provider: z.literal("stripe"), secretKey: z.string().optional(), webhookSecret: z.string().optional() }),
+    z.object({ provider: z.literal("stripe"), secretKey: z.string().optional(), webhookSecret: z.string().optional(), tax: z.boolean().optional() }),
     z.object({
       provider: z.literal("square"), accessToken: z.string().optional(), locationId: z.string().min(3),
       squareEnv: z.enum(["sandbox", "production"]).optional(), webhookKey: z.string().optional(),
@@ -427,6 +428,7 @@ adminRouter.put("/payment-provider", h(async (req) => {
   if (body.provider === "stripe") {
     cfg.stripeSecretKey = keep(body.secretKey, cfg.stripeSecretKey);
     cfg.stripeWebhookSecret = keep(body.webhookSecret, cfg.stripeWebhookSecret);
+    if (body.tax !== undefined) cfg.stripeTax = body.tax;
     if (!cfg.stripeSecretKey?.startsWith("sk_") && !cfg.stripeSecretKey?.startsWith("rk_")) throw badRequest("Enter your Stripe secret key (starts with sk_live_ or sk_test_)");
   }
   if (body.provider === "square") {
@@ -454,7 +456,12 @@ adminRouter.post("/payment-provider/test", h(async (req) => {
   try {
     if (b.payment_provider === "stripe") {
       const acct = await stripeFor(b).accounts.retrieveCurrent();
-      return { ok: true, message: `Connected to your Stripe account ${acct.settings?.dashboard?.display_name ?? acct.email ?? acct.id}${acct.charges_enabled ? "" : " (not activated for payments yet; finish setup in Stripe)"}` };
+      const base = `Connected to your Stripe account ${acct.settings?.dashboard?.display_name ?? acct.email ?? acct.id}${acct.charges_enabled ? "" : " (not activated for payments yet; finish setup in Stripe)"}`;
+      if (!decryptJson<any>(b.payment_config).stripeTax) return { ok: true, message: base };
+      const tax = await stripeFor(b).tax.settings.retrieve().catch(() => null);
+      return tax?.status === "active"
+        ? { ok: true, message: `${base}. Stripe Tax is on: sales tax is added at checkout.` }
+        : { ok: false, message: `${base}. "Add sales tax" is ticked, but Stripe Tax isn't set up in your Stripe account yet (Stripe → Settings → Tax), so checkout would fail. Set it up or untick the box.` };
     }
     if (b.payment_provider === "square") {
       const cfg = decryptJson<any>(b.payment_config);
