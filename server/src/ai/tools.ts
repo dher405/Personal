@@ -255,7 +255,7 @@ const adminTools: AiTool[] = [
   }),
   tool({
     name: "cancel_booking",
-    description: "Cancel a booking. Does not refund; tell the admin to issue any refund from the Bookings screen.",
+    description: "Cancel a booking. Anything the customer paid online is refunded in full automatically, so before cancelling a paid booking, confirm with the admin that they want the refund (to keep the payment, reschedule instead).",
     schema: z.object({ booking_id: z.string(), reason: z.string().optional() }),
     run: async (input, ctx) => {
       adminBooking(ctx, input.booking_id);

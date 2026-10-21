@@ -216,10 +216,12 @@ The **Dashboard** shows today's appointments and this month's numbers. The **Boo
 | Add a private note | **Edit / move**: **Notes** (customers don't see these) |
 | Send a reminder now | **Text reminder** (customers who agreed to texts only) |
 | Record how it went | **Done** (completed) or **No-show** |
-| Cancel | **Cancel**. This does not refund automatically; see below |
+| Cancel | **Cancel**. Anything the customer paid online is refunded in full automatically, and they're emailed |
 | Answer a pay-in-person request | Click Accept or decline in the banner (or filter Status to "requested"), then Accept or Decline on the booking |
 
-**Refunds.** Open **Edit / move** on the booking. Under **Refunds**, leave the amount blank for a full refund or type an amount for a partial one, then click **Refund** and confirm. The money goes back through the same payment provider, usually in 5–10 business days. You can also refund from the **Payments** tab. A refund can't be undone.
+**Cancelling refunds; moving doesn't.** When you cancel a booking (or cancel the rest of a repeating series), anything the customer paid online goes back to them in full, automatically. To keep their payment, for example when they're moving to another day, use **Edit / move** instead of cancelling; moving never refunds. If a refund can't go through (for example your payment provider's keys have changed), the booking is still cancelled and shows a red "Automatic refund failed" note so you can refund it by hand.
+
+**Partial refunds.** Open **Edit / move** on the booking. Under **Refunds**, leave the amount blank for a full refund or type an amount for a partial one, then click **Refund** and confirm. The money goes back through the same payment provider, usually in 5–10 business days. You can also refund from the **Payments** tab. A refund can't be undone.
 
 **When customers act themselves,** you don't need to do anything. Their changes appear here straight away, and you can get a text for each one (see Text messages).
 
@@ -426,7 +428,7 @@ It always gathers the customer's name and email, repeats the service, time, staf
 | Block Alex off next Monday | Add time off to Alex's calendar |
 | Raise the 60-minute lesson to $80 | Ask you to confirm, then change the price |
 
-It asks before cancelling, changing a price, or booking outside your hours. **It cannot issue refunds**; those are always done by a person in Bookings or Payments. Check the Bookings tab after big changes.
+It asks before cancelling, changing a price, or booking outside your hours. It can't issue partial refunds, and it checks with you before cancelling a paid booking, because cancelling refunds the customer in full. Check the Bookings tab after big changes.
 
 ## Plans, usage and billing
 
@@ -488,7 +490,7 @@ Pull down to refresh. Setting up services, hours, payments and texts is done on 
 | The calendar doesn't appear on my website | The code was pasted into an HTML/Embed/Code block, not a normal text block. Some builders only run code on the published page, not in the editor preview |
 | The calendar on Wix is cut off | Make the Embed HTML box taller, or use the pop-up button style instead |
 | A customer didn't get their text | They ticked "Text me" when booking; the Message log shows the reason if it was skipped (STOP, invalid number, texting not connected). Check connection in the Twilio box confirms your account works, and US numbers must be registered (A2P 10DLC or toll-free) before carriers deliver |
-| A customer can't cancel online | They're past your cutoff. You can cancel for them in Bookings, and decide on a refund |
+| A customer can't cancel online | They're past your cutoff. You can cancel for them in Bookings (that refunds them in full), or mark it **No-show** to keep the payment |
 | A payment shows pending | They didn't finish checkout. The time is released after 30 minutes, or they can use **Complete payment** on their manage page |
 
 | Calendar problem | Check |

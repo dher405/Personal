@@ -26,7 +26,7 @@ Every change to a booking, price, refund, or plan is written to an audit log, al
 - **AI booking assistant** (Claude, optional, per business):
   - *Customer chat* on the booking page and in the app. It lists services, finds real open times, books, reschedules, and cancels. To change an existing booking it needs the booking code plus the email used to book. The owner can add custom instructions such as "new students start with the trial lesson".
   - *Admin assistant* in the admin screen, for requests like "what's on tomorrow?", "move Jo to Friday at 3", "block Alex off Monday", or "raise the 60-minute lesson to $80".
-  - The AI can't issue refunds. Moving money is always a person's decision.
+  - The AI can't issue partial refunds, and it checks with the admin before cancelling a paid booking (cancelling refunds in full).
 - **Customer payments** go into each business's *own* Stripe, Square or PayPal account (its keys, entered on its Payments tab) through hosted checkout pages, so card details never reach your server. The platform takes nothing from these payments.
   - **Stripe** (Checkout), **Square** (payment links), **PayPal** (Orders v2), or **Test mode** (fake payments for development).
   - Unpaid bookings hold their slot for 30 minutes and are then released.
@@ -41,7 +41,8 @@ Every change to a booking, price, refund, or plan is written to an audit log, al
 
   Admins get a text when customers book, confirm, reschedule or cancel, plus an optional morning agenda. Staff can get an "up next" text before each appointment. Admins can text **TODAY** or **TOMORROW** for their schedule, or (on AI plans) ask in plain words to move or cancel bookings. STOP/START opt-outs are respected. Businesses pay Twilio for their own texts; Slotwise doesn't meter them.
 - **Repeating bookings.** A booking can repeat every week or every 2 weeks for a block of weeks (26 by default; each business can choose 4–52 under Settings). Each lesson is its own booking. Weeks that aren't free are skipped and listed. The customer gets one summary email with a single calendar file. Two weeks before the last lesson, the customer is emailed a one-click renewal link (`/manage/<token>?renew=1`) and the business is told. Customers can choose it on the booking page only when the business allows it and doesn't take payment online; admins can set it up from **+ New booking** at any time. Lessons count toward the booking allowance in the month they happen.
-- **Refunds.** Full or partial, from the admin bookings screen, the payments list, the super admin payments list, or the mobile admin. If a customer cancels online within the policy window, they're refunded automatically.
+- **Refunds.** Cancelling a booking refunds what the customer paid, in full and automatically, whoever cancels (customers can only cancel online within the cancellation window). Moving a booking never refunds. A refund the provider refuses leaves the booking cancelled with a "refund failed" note. Partial refunds are made by hand from the bookings screen, the payments list, the super admin payments list, or the mobile admin.
+- **Suspending, closing and deleting a business** (super admin). **Suspend** hides it and pauses its Stripe subscription (invoices are voided, so it isn't charged); reactivating resumes both. **Close** cancels the subscription now, cancels every upcoming booking with a full refund and an email to each customer, and hides the business. A closed business can then be **deleted permanently**.
 
 ## Try it online
 

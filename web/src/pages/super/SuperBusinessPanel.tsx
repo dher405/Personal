@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DateTime } from "luxon";
 import { api, money } from "../../api";
 import { useAction, useApi } from "../../hooks";
@@ -16,6 +17,7 @@ export function SuperBusinessPanel() {
   if (!data) return <div className="muted">Loading…</div>;
   const b = data.business;
   const refresh = () => { reload(); reloadBiz(); };
+  const [result, setResult] = useState("");
   const patch = (body: object) => action.run(async () => { await api(`/super/businesses/${b.id}`, { method: "PATCH", body }); refresh(); });
 
   return (
@@ -105,12 +107,39 @@ export function SuperBusinessPanel() {
 
       <div className="card stack">
         <h2>Status</h2>
-        <p className="small muted">A suspended business is hidden from customers: its booking page and website calendar stop working. Its data is kept.</p>
-        <div>
-          <button className={b.suspended ? "primary" : "danger"} onClick={() => confirm(b.suspended ? "Reactivate this business?" : "Suspend this business? Customers won't be able to book.") && patch({ suspended: !b.suspended })}>
-            {b.suspended ? "Reactivate business" : "Suspend business"}
-          </button>
-        </div>
+        {result && <div className="notice small">{result}</div>}
+        {b.closed_at ? (
+          <>
+            <p className="small"><b>Closed</b> on {new Date(b.closed_at).toLocaleDateString()}. Its billing was cancelled and its upcoming bookings were cancelled and refunded. Its records are kept until you delete it.</p>
+            <div>
+              <button className="danger" disabled={action.busy} onClick={() => {
+                const typed = prompt(`Delete ${b.name} permanently? Every booking, customer record, payment record and setting it has is erased, and this can't be undone. Type the business name to confirm:`);
+                if (typed === null) return;
+                if (typed.trim() !== b.name) { alert("The name didn't match, so nothing was deleted."); return; }
+                action.run(async () => { await api(`/super/businesses/${b.id}`, { method: "DELETE" }); window.location.href = "/super/businesses"; });
+              }}>Delete permanently</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="small muted">
+              <b>Suspend</b> hides the business from customers (its booking page and website calendar stop working) and pauses its Slotwise subscription, so it isn't charged while suspended. Reactivating resumes both. Existing bookings are left as they are.
+            </p>
+            <p className="small muted">
+              <b>Close</b> is for a business that's leaving: its subscription is cancelled now (no more charges), every upcoming booking is cancelled with the customer emailed and refunded in full, and the business is hidden. After closing you can delete it permanently.
+            </p>
+            <div className="row">
+              <button className={b.suspended ? "primary" : "danger"} disabled={action.busy} onClick={() => confirm(b.suspended ? "Reactivate this business? Its subscription resumes billing." : "Suspend this business? Customers won't be able to book, and its subscription is paused (no charges) until you reactivate it.") && patch({ suspended: !b.suspended })}>
+                {b.suspended ? "Reactivate business" : "Suspend business"}
+              </button>
+              <button className="danger" disabled={action.busy} onClick={() => confirm(`Close ${b.name}? This cancels its Slotwise subscription now, cancels every upcoming booking and refunds those customers in full (they're emailed), and hides the business. It can't be reopened.`) && action.run(async () => {
+                const r = await api(`/super/businesses/${b.id}/close`, { method: "POST" });
+                setResult(`Closed. ${r.subscriptionCancelled ? "Subscription cancelled in Stripe. " : ""}${r.bookingsCancelled} upcoming booking${r.bookingsCancelled === 1 ? "" : "s"} cancelled.${r.refundsFailed ? ` ${r.refundsFailed} refund${r.refundsFailed === 1 ? "" : "s"} failed: see the Bookings tab.` : ""}`);
+                refresh();
+              })}>Close business</button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card table-wrap">

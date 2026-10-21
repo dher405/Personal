@@ -89,6 +89,13 @@ const emailSubjects: Partial<Record<NotificationKind, string>> = {
   booking_declined: "Your booking request wasn't accepted",
 };
 
+/** On a cancellation email: what was refunded (refunds can take several business days to reach the card). */
+function refundLine(booking: Row) {
+  if (booking.refund_error) return [`We'll be in touch about refunding your payment.`];
+  const refunded = one<{ n: number }>("SELECT COALESCE(SUM(refunded_cents), 0) AS n FROM payments WHERE booking_id = ?", booking.id)!.n;
+  return refunded ? [`Your payment of ${formatMoney(refunded, booking.currency)} has been refunded to the card you paid with. It can take 5–10 business days to show up.`] : [];
+}
+
 /** Customer emails for confirmed / moved / cancelled bookings, sent from the business's own email account (Admin → Email). */
 export async function dispatchEmail(kind: NotificationKind, booking: Row) {
   const subject = emailSubjects[kind];
@@ -100,7 +107,7 @@ export async function dispatchEmail(kind: NotificationKind, booking: Row) {
   const manage = `${config.webUrl}/manage/${booking.manage_token}`;
   const first = String(booking.customer_name).split(" ")[0];
   const lines = kind === "booking_cancelled"
-    ? [`Hi ${first},`, `Your ${service.name} with ${business.name} on ${when} has been cancelled.`, `Book again any time: ${config.webUrl}/b/${business.slug}`]
+    ? [`Hi ${first},`, `Your ${service.name} with ${business.name} on ${when} has been cancelled.`, ...refundLine(booking), `Book again any time: ${config.webUrl}/b/${business.slug}`]
     : kind === "booking_requested"
     ? [
         `Hi ${first},`,

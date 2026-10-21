@@ -63,6 +63,7 @@ export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) 
     meetingUrl: b.meeting_url ?? null,
     meetingProvider: b.meeting_provider ?? null,
     meetingError: b.meeting_error ?? null,
+    refundError: b.refund_error ?? null,
     declineReason: b.decline_reason ?? null,
     smsOptIn: !!b.sms_opt_in,
     customerConfirmedAt: b.customer_confirmed_at,
@@ -269,9 +270,10 @@ export function rescheduleBooking(bookingId: string, newStart: string, opts: { s
 }
 
 /**
- * Customers must cancel inside the business's cancellation window; doing so
- * refunds anything they paid. Admin cancellations never auto-refund — the admin
- * decides separately from the bookings screen.
+ * Cancelling a booking refunds what the customer paid, in full, whether the business or the customer cancels
+ * (customers can only cancel online inside the business's cancellation window). Moving a booking never refunds.
+ * A refund the payment provider refuses doesn't stop the cancellation: it's recorded on the booking
+ * (refund_error) so the business can refund by hand.
  */
 export async function cancelBooking(bookingId: string, opts: { byCustomer: boolean; reason?: string; quiet?: boolean }, actor: Actor) {
   const booking = getBooking(bookingId);
@@ -285,9 +287,14 @@ export async function cancelBooking(bookingId: string, opts: { byCustomer: boole
   }
   run("UPDATE bookings SET status = 'cancelled', ics_sequence = ics_sequence + 1 WHERE id = ?", booking.id);
   audit(actor, booking.business_id, "booking.cancelled", { bookingId, reason: opts.reason ?? "", byCustomer: opts.byCustomer });
-  if (opts.byCustomer) {
-    for (const p of all("SELECT id FROM payments WHERE booking_id = ? AND status IN ('paid','partially_refunded')", booking.id)) {
-      await refundPayment(p.id, undefined, actor, "Customer cancelled within policy");
+  for (const p of all("SELECT id FROM payments WHERE booking_id = ? AND status IN ('paid','partially_refunded')", booking.id)) {
+    try {
+      await refundPayment(p.id, undefined, actor, opts.byCustomer ? "Customer cancelled within policy" : "Cancelled by the business");
+    } catch (err) {
+      const message = (err as Error).message.slice(0, 300);
+      console.error("automatic refund failed", err);
+      run("UPDATE bookings SET refund_error = ? WHERE id = ?", message, booking.id);
+      audit(actor, booking.business_id, "payment.refund_failed", { bookingId, paymentId: p.id, error: message });
     }
   }
   const updated = getBooking(bookingId);

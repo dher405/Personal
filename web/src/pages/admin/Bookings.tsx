@@ -41,7 +41,10 @@ export function Bookings() {
   });
 
   const setStatus = (b: any, status: string) => action.run(async () => {
-    if (status === "cancelled" && !confirm("Cancel this booking? Refunds are issued separately.")) return;
+    const paid = b.payments.some((p: any) => ["paid", "partially_refunded"].includes(p.status));
+    if (status === "cancelled" && !confirm(paid
+      ? `Cancel this booking? ${b.customerName} is refunded in full automatically and emailed. (To keep their payment, move the booking instead of cancelling it.)`
+      : `Cancel this booking? ${b.customerName} is emailed.`)) return;
     await api(`/admin/${biz.id}/bookings/${b.id}`, { method: "PATCH", body: { status } });
     reload();
   });
@@ -94,6 +97,7 @@ export function Bookings() {
                   <td>
                     <span className={`badge ${badge[b.status]}`}>{b.status === "requested" ? "request" : b.status.replace("_", " ")}</span>
                     {b.payInPerson && <div className="small">💵 pays in person</div>}
+                    {b.refundError && <div className="small" style={{ color: "var(--bad)" }} title={b.refundError}>⚠ Automatic refund failed: {b.refundError}. Refund it from Edit / move, or in your payment provider.</div>}
                     {b.customerConfirmedAt && b.status === "confirmed" && <div className="small" title="Customer confirmed attendance">✓ customer confirmed</div>}
                     {b.smsOptIn && <div className="small muted">📱 texts on</div>}
                     {b.series && <div className="small"><button className="link" onClick={() => setSeriesId(b.series.id)}>🔁 every {b.series.intervalWeeks === 1 ? "week" : "2 weeks"}</button></div>}
@@ -313,7 +317,7 @@ function SeriesModal({ id, onClose }: { id: string; onClose: () => void }) {
     reload();
   });
   const cancel = () => action.run(async () => {
-    if (!confirm(`Cancel all of ${s.customer_name}'s remaining lessons? They get one email. Refunds are issued separately.`)) return;
+    if (!confirm(`Cancel all of ${s.customer_name}'s remaining lessons? They get one email, and anything paid for those lessons is refunded automatically.`)) return;
     const r = await api<any>(`/admin/${biz.id}/series/${id}/cancel`, { method: "POST" });
     setMessage(`${r.cancelled} lessons cancelled.`);
     reload();

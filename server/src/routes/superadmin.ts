@@ -9,6 +9,7 @@ import { getPacks, getPlan, getPlans, savePacks, savePlans } from "../lib/plans.
 import { grantCredits, usageFor } from "../lib/usage.js";
 import { describeSettings, saveSettings, testSettings } from "../lib/platformSettings.js";
 import { enableTaxOnSubscriptions, setPlan } from "../lib/platformBilling.js";
+import { closeBusiness, deleteBusiness, pauseBilling } from "../lib/closeBusiness.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 import { storageStatus } from "../lib/storage.js";
 import { emailLive, platformEmailFailure } from "../lib/email.js";
@@ -150,7 +151,7 @@ superRouter.post("/support/:cid/messages", h((req) => {
 superRouter.get("/businesses", h((req) => {
   const q = `%${String(req.query.q ?? "")}%`;
   const rows = all(
-    `SELECT b.id, b.name, b.slug, b.plan, b.plan_status, b.suspended, b.payment_provider, b.created_at,
+    `SELECT b.id, b.name, b.slug, b.plan, b.plan_status, b.suspended, b.closed_at, b.payment_provider, b.created_at,
             (SELECT COUNT(*) FROM bookings k WHERE k.business_id = b.id) AS booking_count,
             (SELECT COUNT(*) FROM sms_messages m WHERE m.business_id = b.id AND m.direction = 'outbound' AND m.status NOT IN ('failed','skipped')
                AND m.created_at >= datetime('now','start of month')) AS sms_this_month,
@@ -167,7 +168,7 @@ superRouter.get("/businesses/:id", h((req) => {
   const month = "datetime('now','start of month')";
   return {
     business: {
-      id: b.id, name: b.name, slug: b.slug, plan: b.plan, plan_status: b.plan_status, suspended: !!b.suspended,
+      id: b.id, name: b.name, slug: b.slug, plan: b.plan, plan_status: b.plan_status, suspended: !!b.suspended, closed: !!b.closed_at,
       created_at: b.created_at, payment_provider: b.payment_provider, auto_topup: !!b.auto_topup,
       platform_customer_id: b.platform_customer_id, platform_subscription_id: b.platform_subscription_id, plan_ends_at: b.plan_ends_at,
     },
@@ -204,13 +205,16 @@ superRouter.delete("/businesses/:id/members/:userId", h((req) => {
   return { ok: true };
 }));
 
-superRouter.patch("/businesses/:id", h((req) => {
+superRouter.patch("/businesses/:id", h(async (req) => {
   const b = one("SELECT * FROM businesses WHERE id = ?", req.params.id);
   if (!b) throw notFound();
   const body = parse(z.object({ suspended: z.boolean().optional(), plan: z.string().optional() }), req.body);
   if (body.suspended !== undefined) {
+    if (!body.suspended && b.closed_at) throw badRequest("This business is closed. Its billing and bookings were cancelled, so it can't simply be reactivated.");
+    // Suspended businesses aren't charged: their Stripe subscription is paused, and resumes when reactivated.
+    const billing = await pauseBilling(b, body.suspended);
     run("UPDATE businesses SET suspended = ? WHERE id = ?", Number(body.suspended), b.id);
-    audit(actorOf(req.user), b.id, body.suspended ? "business.suspended" : "business.unsuspended");
+    audit(actorOf(req.user), b.id, body.suspended ? "business.suspended" : "business.unsuspended", { billingPaused: billing ? body.suspended : null });
   }
   // Manual override (comped accounts, support credits). Does not touch Stripe.
   if (body.plan) setPlan(b.id, body.plan, "active", actorOf(req.user));
@@ -285,6 +289,11 @@ superRouter.get("/settings/ai-models", h(async (req) => {
 superRouter.get("/plans", h(() => getPlans()));
 
 superRouter.get("/packs", h(() => getPacks()));
+
+/** Close: cancels billing and upcoming bookings (refunding customers) and hides the business. */
+superRouter.post("/businesses/:id/close", h((req) => closeBusiness(req.params.id as string, actorOf(req.user))));
+/** Delete permanently (only after closing). */
+superRouter.delete("/businesses/:id", h((req) => deleteBusiness(req.params.id as string, actorOf(req.user))));
 
 superRouter.get("/billing/tax", h(() => ({ on: config.stripe.tax, behavior: config.stripe.taxBehavior, stripe: !!config.stripe.secretKey, mode: config.stripe.mode })));
 superRouter.post("/billing/tax/existing", h(() => enableTaxOnSubscriptions()));

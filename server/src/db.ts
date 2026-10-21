@@ -428,6 +428,8 @@ CREATE TABLE IF NOT EXISTS booking_series (
 );
 CREATE INDEX IF NOT EXISTS idx_series_business ON booking_series(business_id, status);
 `);
+addColumn("bookings", "refund_error", "TEXT");
+addColumn("businesses", "closed_at", "TEXT");
 addColumn("bookings", "series_id", "TEXT REFERENCES booking_series(id) ON DELETE SET NULL");
 
 // When a paid plan is set to end (moving to Starter), it runs until this time (ISO, UTC), then the business moves to Starter.
