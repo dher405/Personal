@@ -9,12 +9,14 @@ export interface Plan {
   /** Monthly allowances (usage-based pricing). Packs or an upgrade add more; see lib/usage.ts. */
   bookingsPerMonth: number;
   aiMessagesPerMonth: number;
+  /** Shown on the home page and offered on businesses' Plan & billing page. Hidden plans (e.g. for testers) are assigned by the super admin. */
+  visible: boolean;
 }
 
 export const DEFAULT_PLANS: Plan[] = [
-  { id: "free", name: "Starter", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 25, aiMessagesPerMonth: 0 },
-  { id: "pro", name: "Pro", monthlyPriceCents: 2900, maxStaff: 5, aiChat: true, bookingsPerMonth: 300, aiMessagesPerMonth: 1000 },
-  { id: "business", name: "Business", monthlyPriceCents: 7900, maxStaff: 50, aiChat: true, bookingsPerMonth: 2000, aiMessagesPerMonth: 5000 },
+  { id: "free", name: "Starter", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 25, aiMessagesPerMonth: 0, visible: true },
+  { id: "pro", name: "Pro", monthlyPriceCents: 2900, maxStaff: 5, aiChat: true, bookingsPerMonth: 300, aiMessagesPerMonth: 1000, visible: true },
+  { id: "business", name: "Business", monthlyPriceCents: 7900, maxStaff: 50, aiChat: true, bookingsPerMonth: 2000, aiMessagesPerMonth: 5000, visible: true },
 ];
 
 const ALLOWANCES = ["bookingsPerMonth", "aiMessagesPerMonth"] as const;
@@ -29,6 +31,7 @@ export function getPlans(): Plan[] {
     // (businesses take payments and send texts with their own accounts).
     const { platformFeeBps: _fee, smsPerMonth: _sms, ...filled } = p as Plan & { platformFeeBps?: number; smsPerMonth?: number };
     for (const k of ALLOWANCES) filled[k] = p[k] ?? d?.[k] ?? 0;
+    filled.visible = p.visible ?? true; // plans saved before this setting existed were all shown
     return filled;
   });
 }
@@ -57,6 +60,9 @@ export function savePlans(plans: Plan[]) {
     JSON.stringify(plans),
   );
 }
+
+/** The plans businesses can see and choose (plus the one a business is already on, even if it's hidden). */
+export const visiblePlans = (currentPlanId?: string) => getPlans().filter((p) => p.visible || p.id === currentPlanId);
 
 export function getPlan(id: string): Plan {
   const plans = getPlans();

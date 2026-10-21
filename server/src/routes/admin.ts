@@ -8,7 +8,7 @@ import { findSlotsLive } from "../lib/availability.js";
 import { decryptJson, encryptJson } from "../lib/crypto.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
-import { getPlan, getPlans } from "../lib/plans.js";
+import { getPlan, getPlans, visiblePlans } from "../lib/plans.js";
 import { stripeFor } from "../payments/stripe.js";
 import { squareFetch } from "../payments/square.js";
 import { credsFor as paypalCredsFor, paypalAccessToken } from "../payments/paypal.js";
@@ -475,7 +475,7 @@ adminRouter.post("/payment-provider/test", h(async (req) => {
 
 // ---------- Platform plan (what the business pays us) ----------
 
-adminRouter.get("/plans", h(() => getPlans()));
+adminRouter.get("/plans", h((req) => visiblePlans(business(req).plan)));
 
 // ---------- Usage (usage-based pricing) ----------
 

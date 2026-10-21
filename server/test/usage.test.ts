@@ -161,3 +161,24 @@ test("moving to Starter keeps the paid plan until the paid period ends", async (
   assert.equal(b.platform_subscription_id, null);
   run("UPDATE businesses SET plan = 'pro' WHERE id = ?", bid);
 });
+
+test("hidden plans stay off the home page and the Billing page, and only the super admin can give them", async () => {
+  const plans = (await api("GET", "/api/super/plans", undefined, superToken)).body;
+  const saved = [...plans, { id: "tester", name: "Tester", monthlyPriceCents: 0, maxStaff: 1, aiChat: true, bookingsPerMonth: 2000, aiMessagesPerMonth: 5000, visible: false }];
+  assert.equal((await api("PUT", "/api/super/plans", saved, superToken)).status, 200);
+  assert.equal((await api("PUT", "/api/super/plans", saved.map((p: any) => (p.id === "free" ? { ...p, visible: false } : p)), superToken)).status, 400, "Starter stays visible");
+
+  const ids = (body: any[]) => body.map((p) => p.id);
+  assert.ok(!ids((await api("GET", "/api/public/plans", undefined, "")).body).includes("tester"));
+  assert.ok(!ids((await api("GET", `/api/admin/${bid}/plans`)).body).includes("tester"));
+  assert.ok(ids((await api("GET", "/api/super/plans", undefined, superToken)).body).includes("tester"));
+  const choose = await api("POST", `/api/admin/${bid}/billing/checkout`, { planId: "tester" });
+  assert.equal(choose.status, 400);
+  assert.match(choose.body.error, /isn't available/);
+
+  // Given by the super admin, the business sees it as its current plan.
+  const before = one("SELECT plan FROM businesses WHERE id = ?", bid)!.plan;
+  run("UPDATE businesses SET plan = 'tester' WHERE id = ?", bid);
+  assert.ok(ids((await api("GET", `/api/admin/${bid}/plans`)).body).includes("tester"));
+  run("UPDATE businesses SET plan = ? WHERE id = ?", before, bid);
+});

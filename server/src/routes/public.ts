@@ -6,7 +6,7 @@ import { findSlotsLive, freeInConnectedCalendars } from "../lib/availability.js"
 import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, serializeBooking, startPayment, getBooking } from "../lib/bookings.js";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
-import { getPlan, getPlans } from "../lib/plans.js";
+import { getPlan, getPlans, visiblePlans } from "../lib/plans.js";
 import { meter } from "../lib/usage.js";
 import { aiAvailable, chat } from "../ai/chat.js";
 import { customerIcs } from "../lib/ics.js";
@@ -38,7 +38,7 @@ publicRouter.get("/businesses", h((req) => {
 /** Details for the Terms and Privacy pages (set under Super admin → Settings → Legal pages). */
 publicRouter.get("/legal", h(() => legalInfo()));
 
-publicRouter.get("/plans", h(() => getPlans().map((p) => ({
+publicRouter.get("/plans", h(() => visiblePlans().map((p) => ({
   id: p.id, name: p.name, monthlyPriceCents: p.monthlyPriceCents, bookingsPerMonth: p.bookingsPerMonth,
   maxStaff: p.maxStaff, aiChat: p.aiChat, aiMessagesPerMonth: p.aiMessagesPerMonth,
 }))));

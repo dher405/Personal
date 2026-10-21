@@ -310,8 +310,10 @@ superRouter.put("/plans", h((req) => {
     monthlyPriceCents: z.number().int().min(0),
     maxStaff: z.number().int().min(1), aiChat: z.boolean(),
     bookingsPerMonth: z.number().int().min(0), aiMessagesPerMonth: z.number().int().min(0),
+    visible: z.boolean().default(true),
   })).min(1), req.body);
   if (!plans.some((p) => p.id === "free")) throw badRequest("A 'free' plan must exist (it is the fallback when subscriptions end)");
+  if (!plans.find((p) => p.id === "free")!.visible) throw badRequest("The 'free' plan must stay visible: it's the plan new businesses start on");
   savePlans(plans);
   audit(actorOf(req.user), null, "plans.updated", { plans });
   return plans;

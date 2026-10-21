@@ -33,7 +33,7 @@ export function SuperBusinessPanel() {
         <div className="row">
           <label>Plan
             <select value={b.plan} onChange={(e) => confirm("Change this business's plan directly? This doesn't charge or refund their card; use it for comped or special accounts.") && patch({ plan: e.target.value })}>
-              {plans?.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.monthlyPriceCents ? `${money(p.monthlyPriceCents)}/mo` : "free"})</option>)}
+              {plans?.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.monthlyPriceCents ? `${money(p.monthlyPriceCents)}/mo` : "free"}){p.visible === false ? " · hidden plan" : ""}</option>)}
             </select>
           </label>
           <span className="badge">{b.plan_status}</span>

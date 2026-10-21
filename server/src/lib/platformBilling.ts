@@ -24,6 +24,8 @@ export function setPlan(businessId: string, planId: string, status: string, acto
 export async function startPlanCheckout(business: Row, planId: string, user: AuthUser, actor: Actor) {
   const plan = getPlan(planId);
   if (plan.id !== planId) throw badRequest("Unknown plan");
+  // Hidden plans (e.g. "tester") can only be given by the super admin, under Super admin → Businesses.
+  if (!plan.visible && plan.id !== business.plan && user.role !== "superadmin") throw badRequest("That plan isn't available");
   const returnUrl = `${config.webUrl}/admin/${business.id}/billing`;
 
   // Moving to Starter: they keep the paid plan for the time they've already paid for, and Stripe ends

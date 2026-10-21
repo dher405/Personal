@@ -162,7 +162,7 @@ async function notifyAdmins(business: Row, subject: string, text: string) {
 function upgradeFor(business: Row, metric: Metric) {
   const current = getPlan(business.plan);
   return getPlans()
-    .filter((p) => p.monthlyPriceCents > current.monthlyPriceCents && Number(p[PLAN_FIELD[metric]]) > Number(current[PLAN_FIELD[metric]]))
+    .filter((p) => p.visible && p.monthlyPriceCents > current.monthlyPriceCents && Number(p[PLAN_FIELD[metric]]) > Number(current[PLAN_FIELD[metric]]))
     .sort((a, b) => a.monthlyPriceCents - b.monthlyPriceCents)[0];
 }
 
