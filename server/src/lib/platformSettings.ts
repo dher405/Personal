@@ -16,6 +16,22 @@ export interface SettingGroup { id: string; title: string; description: string; 
 
 export const SETTING_GROUPS: SettingGroup[] = [
   {
+    id: "site", title: "Website address",
+    description: "The address people use for Slotwise, such as https://bookwithslotwise.com. Links in emails and texts, sign-in with Google/Apple/Microsoft, calendar connections, passkeys and payment return pages all use it. First add the domain under Custom Domains in Render and wait until Render shows it as verified (with a certificate), then save it here. Visitors to the old Render address are sent to this one; webhooks and website embeds that use the old address keep working.",
+    fields: [
+      { name: "PUBLIC_WEB_URL", label: "Website address", placeholder: "https://bookwithslotwise.com", help: "Starts with https://, nothing after the domain" },
+    ],
+    urls: (api) => [
+      { label: "Google: Authorized redirect URI (sign-in)", url: `${api}/api/auth/oauth/google/callback` },
+      { label: "Google: Authorized redirect URI (Calendar)", url: `${api}/api/integrations/google/callback` },
+      { label: "Microsoft: Redirect URI (Outlook Calendar)", url: `${api}/api/integrations/microsoft/callback` },
+      { label: "Apple: Return URL", url: `${api}/api/auth/oauth/apple/callback` },
+      { label: "Stripe: platform webhook endpoint", url: `${api}/api/webhooks/stripe` },
+      { label: "Privacy policy (Google & Apple consent screens)", url: `${api}/privacy` },
+      { label: "Terms of service", url: `${api}/terms` },
+    ],
+  },
+  {
     id: "stripe", title: "Stripe", testable: true,
     description: "How you bill businesses: plan subscriptions, extra booking packs and auto top-ups. (Businesses take their customers' payments with their own accounts on their Payments tab.) Keys: dashboard.stripe.com → Developers → API keys. Use sk_test_… to try it out, sk_live_… for real money.",
     fields: [
@@ -155,8 +171,17 @@ export function saveSettings(values: Record<string, string | null>) {
   for (const [name, raw] of Object.entries(values)) {
     const field = FIELDS.get(name);
     if (!field) throw badRequest(`Unknown setting ${name}`);
-    const value = (raw ?? "").trim();
+    let value = (raw ?? "").trim();
     if (field.options && value && !field.options.includes(value)) throw badRequest(`${field.label} must be one of ${field.options.join(", ")}`);
+    if (name === "PUBLIC_WEB_URL" && value) {
+      let url: URL | null = null;
+      try { url = new URL(value); } catch { /* reported below */ }
+      const local = url?.hostname === "localhost";
+      if (!url || (url.protocol !== "https:" && !local) || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) {
+        throw badRequest("The website address must look like https://bookwithslotwise.com (https, and nothing after the domain)");
+      }
+      value = url.origin; // saved without a trailing slash
+    }
     if (value) {
       run("INSERT INTO platform_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", PREFIX + name, encryptJson({ v: value }));
     } else {

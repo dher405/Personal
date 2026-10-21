@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { config } from "./config.js";
+import { config, siteOrigins } from "./config.js";
 // Loads keys saved on Super admin → Settings before anything reads them.
 import "./lib/platformSettings.js";
 import { optionalAuth, requireAuth, requireSuperAdmin } from "./lib/auth.js";
@@ -15,10 +15,30 @@ import { paymentsRouter } from "./routes/payments.js";
 import { smsWebhookRouter } from "./routes/sms.js";
 import { adminCalendarRouter, calendarPublicRouter } from "./routes/calendars.js";
 
+/**
+ * Pages opened on another of the site's addresses (the old onrender.com one, or www/bare) move to the main address,
+ * so sign-in, passkeys and cookies all happen on one domain. The API (webhooks, the booking widget's calls), the
+ * widget itself and embed.js answer on every address, so integrations set up with the old address keep working.
+ */
+function canonicalHost(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (req.method !== "GET" || req.path.startsWith("/api/") || req.path.startsWith("/embed")) return next();
+  const main = new URL(config.webUrl);
+  const host = req.hostname;
+  if (!host || host === main.hostname) return next();
+  const known = siteOrigins().some((o) => new URL(o).hostname === host);
+  // Only whole-page visits, never pages shown inside another site (the widget) or files fetched by scripts.
+  const dest = req.headers["sec-fetch-dest"];
+  if (known && (dest === "document" || (!dest && String(req.headers.accept ?? "").includes("text/html")))) {
+    return res.redirect(301, `${main.origin}${req.originalUrl}`);
+  }
+  next();
+}
+
 export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
-  app.use(cors({ origin: config.isProduction ? config.webUrl : true }));
+  app.use(cors({ origin: config.isProduction ? (origin, cb) => cb(null, !origin || siteOrigins().includes(origin)) : true }));
+  app.use(canonicalHost);
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   // Mounted before express.json so webhook routes receive the raw body.
   app.use("/api", paymentsRouter);

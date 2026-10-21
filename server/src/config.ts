@@ -25,12 +25,31 @@ function hostedUrl() {
   return null;
 }
 const pick = (value: string | undefined, fallback: string) =>
-  value && !(hostedUrl() && value.includes("localhost")) ? value : hostedUrl() ?? fallback;
+  (value && !(hostedUrl() && value.includes("localhost")) ? value : hostedUrl() ?? fallback).replace(/\/+$/, "");
+
+/**
+ * The site's own address (e.g. https://bookwithslotwise.com), set on Super admin → Settings → Website address.
+ * The website and API are one service, so it is used for both.
+ */
+const siteAddress = () => savedSetting("PUBLIC_WEB_URL");
+
+/**
+ * Every origin this deployment answers on: the main address plus the Render address (and the www/bare twin).
+ * Links and redirects always use the main address; these others keep webhooks, embeds and passkeys working.
+ */
+export function siteOrigins(): string[] {
+  const origins = new Set<string>([new URL(config.webUrl).origin, new URL(config.apiUrl).origin]);
+  if (env.RENDER_EXTERNAL_URL) origins.add(new URL(env.RENDER_EXTERNAL_URL).origin);
+  const main = new URL(config.webUrl);
+  if (main.hostname.startsWith("www.")) origins.add(`${main.protocol}//${main.hostname.slice(4)}`);
+  else if (main.hostname.includes(".") && !/^\d/.test(main.hostname)) origins.add(`${main.protocol}//www.${main.hostname}`);
+  return [...origins];
+}
 
 export const config = {
   port: Number(env.PORT ?? 4000),
-  webUrl: pick(env.PUBLIC_WEB_URL, "http://localhost:5173"),
-  apiUrl: pick(env.PUBLIC_API_URL, "http://localhost:4000"),
+  get webUrl() { return pick(siteAddress() || env.PUBLIC_WEB_URL, "http://localhost:5173"); },
+  get apiUrl() { return pick(siteAddress() || env.PUBLIC_API_URL, "http://localhost:4000"); },
   /** Test deployments: allow fake "test mode" payments and auto-create demo data. Never set on a real launch. */
   demoMode: env.DEMO_MODE === "true",
   jwtSecret: env.JWT_SECRET ?? "dev-only-secret",

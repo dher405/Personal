@@ -133,7 +133,7 @@ authRouter.post("/2fa/verify", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(
 /** Passkey options: for the second step (with a challengeId) or to sign in with a passkey alone (without). */
 authRouter.post("/passkey/options", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(async (req) => {
   const body = parse(z.object({ challengeId: challengeId.optional() }), req.body);
-  return passkeySignInOptions(body.challengeId);
+  return passkeySignInOptions(body.challengeId, req.headers.origin);
 }));
 
 authRouter.post("/passkey/verify", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(async (req) => {
@@ -175,7 +175,7 @@ authRouter.get("/security", requireAuth, h((req) => ({
   devices: listDevices(req.user!.id, req.deviceId),
 })));
 
-authRouter.post("/passkeys/options", requireAuth, h((req) => passkeyRegistrationOptions(req.user!)));
+authRouter.post("/passkeys/options", requireAuth, h((req) => passkeyRegistrationOptions(req.user!, req.headers.origin)));
 
 authRouter.post("/passkeys", requireAuth, h(async (req) => {
   const body = parse(z.object({ challengeId, response: z.any(), name: z.string().max(60).optional() }), req.body);

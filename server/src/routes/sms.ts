@@ -1,6 +1,6 @@
 import express, { Router } from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { config } from "../config.js";
+import { config, siteOrigins } from "../config.js";
 import { one, run, Row } from "../db.js";
 import { channelsFor } from "../lib/channels.js";
 import { h } from "../lib/http.js";
@@ -21,7 +21,8 @@ function validTwilioSignature(authToken: string | undefined, url: string, params
 function verifiedBusiness(req: express.Request): Row | null {
   const business = one("SELECT * FROM businesses WHERE id = ?", req.params.bid);
   if (!business) return null;
-  const ok = validTwilioSignature(channelsFor(business).sms.authToken, `${config.apiUrl}${req.originalUrl}`, req.body ?? {}, req.headers["x-twilio-signature"] as string | undefined);
+  // Twilio signs the exact URL it was given, which may be the old Render address or the main one.
+  const ok = siteOrigins().some((origin) => validTwilioSignature(channelsFor(business).sms.authToken, `${origin}${req.originalUrl}`, req.body ?? {}, req.headers["x-twilio-signature"] as string | undefined));
   return ok ? business : null;
 }
 

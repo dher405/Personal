@@ -6,7 +6,7 @@ import {
   type AuthenticationResponseJSON, type RegistrationResponseJSON,
 } from "@simplewebauthn/server";
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
-import { config } from "../config.js";
+import { config, siteOrigins } from "../config.js";
 import { all, audit, newId, one, run, type Row } from "../db.js";
 import type { AuthUser } from "./auth.js";
 import { emailLive, sendEmail } from "./email.js";
@@ -223,11 +223,15 @@ export function completeWithoutSecondStep(challengeId: string) { finish(challeng
 
 // ---------- Passkeys ----------
 
-/** Passkeys belong to the website's domain (PUBLIC_WEB_URL). */
-const rp = () => {
-  const url = new URL(config.webUrl);
-  return { id: url.hostname, origin: url.origin, name: "Slotwise" };
+/**
+ * Passkeys belong to a domain. They're made for the address the browser is on (normally the main website address;
+ * the old Render address redirects there), and checked against any of the site's own addresses.
+ */
+const rp = (origin?: string) => {
+  const url = new URL(origin && siteOrigins().includes(origin) ? origin : config.webUrl);
+  return { id: url.hostname, name: "Slotwise" };
 };
+const expected = () => ({ expectedOrigin: siteOrigins(), expectedRPID: [...new Set(siteOrigins().map((o) => new URL(o).hostname))] });
 
 const credentialOf = (p: Row) => ({
   id: p.credential_id as string, publicKey: isoBase64URL.toBuffer(p.public_key), counter: p.counter as number,
@@ -238,10 +242,10 @@ export function listPasskeys(userId: string) {
   return all("SELECT id, name, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at", userId);
 }
 
-export async function passkeyRegistrationOptions(user: AuthUser) {
+export async function passkeyRegistrationOptions(user: AuthUser, origin?: string) {
   const id = newChallenge(user.id, "add_passkey");
   const options = await generateRegistrationOptions({
-    rpName: rp().name, rpID: rp().id, userName: user.email, userDisplayName: user.name || user.email,
+    rpName: rp().name, rpID: rp(origin).id, userName: user.email, userDisplayName: user.name || user.email,
     userID: new TextEncoder().encode(user.id), attestationType: "none",
     excludeCredentials: all("SELECT * FROM passkeys WHERE user_id = ?", user.id).map((p) => ({ id: p.credential_id, transports: p.transports ? JSON.parse(p.transports) : undefined })),
     // Saved on the device (so it can sign in without typing an email) and unlocked with a fingerprint, face or PIN.
@@ -255,7 +259,7 @@ export async function addPasskey(user: AuthUser, challengeId: string, response: 
   const c = getChallenge(challengeId, ["add_passkey"]);
   if (c.user_id !== user.id) throw badRequest("That passkey setup has expired. Please try again.");
   const result = await verifyRegistrationResponse({
-    response, expectedChallenge: c.webauthn_challenge, expectedOrigin: rp().origin, expectedRPID: rp().id, requireUserVerification: false,
+    response, expectedChallenge: c.webauthn_challenge, ...expected(), requireUserVerification: false,
   }).catch((err) => { throw badRequest(`The passkey couldn't be checked: ${err.message}`); });
   if (!result.verified) throw badRequest("The passkey couldn't be verified. Please try again.");
   finish(c.id);
@@ -278,7 +282,7 @@ export function removePasskey(user: AuthUser, id: string) {
  * Passkey options. With a challenge from a password/Google sign-in, only that person's passkeys are offered (the
  * second step). Without one, any passkey saved for this site can sign in on its own.
  */
-export async function passkeySignInOptions(challengeId?: string) {
+export async function passkeySignInOptions(challengeId?: string, origin?: string) {
   let id = challengeId;
   let allowCredentials: { id: string; transports?: any }[] | undefined;
   if (challengeId) {
@@ -288,7 +292,7 @@ export async function passkeySignInOptions(challengeId?: string) {
   } else {
     id = newChallenge(null, "passkey");
   }
-  const options = await generateAuthenticationOptions({ rpID: rp().id, allowCredentials, userVerification: challengeId ? "preferred" : "required" });
+  const options = await generateAuthenticationOptions({ rpID: rp(origin).id, allowCredentials, userVerification: challengeId ? "preferred" : "required" });
   run("UPDATE login_challenges SET webauthn_challenge = ? WHERE id = ?", options.challenge, id);
   return { challengeId: id!, options };
 }
@@ -302,7 +306,7 @@ export async function checkPasskey(challengeId: string, response: Authentication
     throw badRequest("That passkey isn't registered to a Slotwise account. Sign in with your email and password instead.");
   }
   const result = await verifyAuthenticationResponse({
-    response, expectedChallenge: c.webauthn_challenge ?? "", expectedOrigin: rp().origin, expectedRPID: rp().id,
+    response, expectedChallenge: c.webauthn_challenge ?? "", ...expected(),
     credential: credentialOf(pk), requireUserVerification: c.purpose === "passkey",
   }).catch((err) => { throw badRequest(`The passkey couldn't be checked: ${err.message}`); });
   if (!result.verified) throw badRequest("The passkey couldn't be verified. Please try again.");

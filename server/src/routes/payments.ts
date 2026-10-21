@@ -1,7 +1,7 @@
 import express, { Router } from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type Stripe from "stripe";
-import { config } from "../config.js";
+import { config, siteOrigins } from "../config.js";
 import { one } from "../db.js";
 import { confirmPayment, markPaid } from "../lib/bookings.js";
 import { h } from "../lib/http.js";
@@ -91,9 +91,12 @@ paymentsRouter.post("/webhooks/square/:bid", raw, h(async (req, res) => {
   const found = businessCfg(req.params.bid as string);
   if (!found?.cfg.squareWebhookKey) return void res.status(404).send("not configured");
   const signature = req.headers["x-square-hmacsha256-signature"] as string | undefined;
-  const url = `${config.apiUrl}/api/webhooks/square/${found.business.id}`;
-  const expected = createHmac("sha256", found.cfg.squareWebhookKey).update(url + req.body.toString("utf8")).digest("base64");
-  if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  // Square signs the URL it was given, which may be the old Render address or the main one.
+  const matches = siteOrigins().some((origin) => {
+    const expected = createHmac("sha256", found.cfg.squareWebhookKey).update(`${origin}/api/webhooks/square/${found.business.id}` + req.body.toString("utf8")).digest("base64");
+    return !!signature && signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  });
+  if (!matches) {
     return void res.status(400).send("bad signature");
   }
   const event = JSON.parse(req.body.toString("utf8"));
