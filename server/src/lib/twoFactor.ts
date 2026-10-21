@@ -188,7 +188,17 @@ export async function sendCode(challengeId: string) {
       `Enter this code to ${what}:\n\n    ${code}\n\nIt expires in ${CODE_MINUTES} minutes.`,
       `Didn't try to sign in? Someone may know your password. Change it at ${config.webUrl}/account, and don't share this code with anyone, including people saying they're from Slotwise.`,
     ].join("\n\n"),
+  }).catch((err) => {
+    console.error("sign-in code email failed", err);
+    throw new CodeEmailError((err as Error).message);
   });
+}
+
+/** The email provider refused the sign-in code (domain not verified, wrong key…). */
+export class CodeEmailError extends HttpError {
+  constructor(public reason: string) {
+    super(503, "We couldn't email your sign-in code just now. Please try again in a few minutes, or use your passkey.");
+  }
 }
 
 /** Checks an emailed code. Returns the challenge (with its user) when it's right. */

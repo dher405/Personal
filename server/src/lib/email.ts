@@ -15,7 +15,28 @@ const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
  */
 export const emailLive = () => !!(config.email.resendApiKey || config.email.postmarkToken);
 
+/**
+ * The last time the platform's email provider refused a message (cleared by the next one it accepts), so the super
+ * admin overview can say what's wrong; sign-in codes depend on it.
+ */
+export function platformEmailFailure(): { at: string; error: string } | null {
+  const row = one<{ value: string }>("SELECT value FROM platform_settings WHERE key = 'email_failure'");
+  return row ? JSON.parse(row.value) : null;
+}
+
 export async function sendEmail(msg: Email): Promise<{ delivered: boolean }> {
+  try {
+    const result = await sendPlatformEmail(msg);
+    if (result.delivered) run("DELETE FROM platform_settings WHERE key = 'email_failure'");
+    return result;
+  } catch (err) {
+    run("INSERT INTO platform_settings (key, value) VALUES ('email_failure', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      JSON.stringify({ at: new Date().toISOString(), error: (err as Error).message.slice(0, 500) }));
+    throw err;
+  }
+}
+
+async function sendPlatformEmail(msg: Email): Promise<{ delivered: boolean }> {
   if (config.email.resendApiKey) {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",

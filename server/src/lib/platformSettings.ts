@@ -182,7 +182,14 @@ export async function testSettings(group: string): Promise<{ ok: boolean; messag
         const json: any = await res.json().catch(() => ({}));
         if (!res.ok) return { ok: false, message: json.message ?? `Resend said ${res.status}` };
         const verified = (json.data ?? []).filter((d: any) => d.status === "verified").map((d: any) => d.name);
-        return { ok: true, message: verified.length ? `Resend key works. Verified domains: ${verified.join(", ")}` : "Resend key works, but no domain is verified yet, so emails can't be sent from your address" };
+        if (!verified.length) return { ok: false, message: "The Resend key works, but no domain is verified yet, so emails can't be sent. Finish the DNS records in Resend → Domains and click Verify." };
+        // The From address must be on a verified domain (or a subdomain of one), or Resend refuses every email.
+        const fromDomain = (config.email.from.match(/@([^>\s]+)/)?.[1] ?? "").toLowerCase();
+        const fromOk = verified.some((d: string) => fromDomain === d || fromDomain.endsWith(`.${d}`));
+        if (!fromOk) return { ok: false, message: `The From address (${config.email.from}) isn't on a verified domain. Verified: ${verified.join(", ")}. Change the From address to use one of them.` };
+        const { platformEmailFailure } = await import("./email.js");
+        const failure = platformEmailFailure();
+        return { ok: !failure, message: `Resend key works and ${fromDomain} is verified.${failure ? ` But the last email failed: ${failure.error}` : ""}` };
       }
       if (config.email.postmarkToken) {
         const res = await fetch("https://api.postmarkapp.com/server", { headers: { "X-Postmark-Server-Token": config.email.postmarkToken, Accept: "application/json" } });

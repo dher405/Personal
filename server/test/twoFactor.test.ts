@@ -11,9 +11,11 @@ const { one, run } = await import("../src/db.js");
 const { config } = await import("../src/config.js");
 
 const sent: { to: string; subject: string; text: string }[] = [];
+let resendDown = false;
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: any, init?: any) => {
   if (String(input) === "https://api.resend.com/emails") {
+    if (resendDown) return new Response('{"message":"The bookwithslotwise.com domain is not verified"}', { status: 403 });
     const b = JSON.parse(init.body);
     sent.push({ to: b.to[0], subject: b.subject, text: b.text });
     return new Response("{}", { status: 200 });
@@ -155,4 +157,24 @@ test("passkeys: sign-in options only offer the person's own passkeys, and work w
   assert.equal(open.options.rpId, new URL(config.webUrl).hostname);
   const bogus = await api("POST", "/api/auth/passkey/verify", { challengeId: open.challengeId, response: { id: "nope", rawId: "nope", type: "public-key", response: {} } });
   assert.match(bogus.body.error, /isn't registered/);
+});
+
+test("if the email provider refuses the code, sign-in carries on (nobody is locked out) and the super admin is told why", async () => {
+  resendDown = true;
+  try {
+    const res = await api("POST", "/api/auth/login", { email: "pat@example.com", password: "password123" });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.ok(res.body.token, "signed in without the code");
+    const { createOAuthChallenge } = await import("../src/lib/twoFactor.js");
+    const resumed = await api("POST", "/api/auth/2fa/resume", { challengeId: createOAuthChallenge(one("SELECT id FROM users WHERE email = 'pat@example.com'")!.id, "/me") });
+    assert.equal(resumed.status, 200, "Google/Apple sign-in too");
+    assert.ok(resumed.body.token);
+    const { platformEmailFailure } = await import("../src/lib/email.js");
+    assert.match(platformEmailFailure()!.error, /domain is not verified/);
+  } finally {
+    resendDown = false;
+  }
+  await api("POST", "/api/auth/login", { email: "pat@example.com", password: "password123" });
+  const { platformEmailFailure } = await import("../src/lib/email.js");
+  assert.equal(platformEmailFailure(), null, "cleared once an email gets through");
 });

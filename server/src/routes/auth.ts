@@ -13,7 +13,7 @@ import { rateLimit } from "../lib/rateLimit.js";
 import {
   addPasskey, checkCode, checkPasskey, completeWithoutSecondStep, createOAuthChallenge, describeChallenge, findDevice, getChallenge,
   isTrusted, listDevices, listPasskeys, passkeyRegistrationOptions, passkeySignInOptions, removePasskey, revokeDevice,
-  revokeOtherDevices, sendCode, signInDevice, startSecondStep, TRUST_DAYS, twoFactorRequired,
+  revokeOtherDevices, sendCode, signInDevice, startSecondStep, TRUST_DAYS, twoFactorRequired, CodeEmailError,
 } from "../lib/twoFactor.js";
 
 export const authRouter = Router();
@@ -63,7 +63,22 @@ function issueSession(req: Request, user: AuthUser, d: DeviceFields, verifiedWit
 async function afterFirstStep(req: Request, user: AuthUser, d: DeviceFields, purpose: "login" | "oauth" | "register", next?: string) {
   if (!twoFactorRequired(user)) return issueSession(req, user, d, null);
   if (purpose !== "register" && isTrusted(findDevice(user.id, d.deviceToken))) return issueSession(req, user, d, null);
-  return { twoFactor: { ...(await startSecondStep(user, purpose, next)), next: next ?? null } };
+  try {
+    return { twoFactor: { ...(await startSecondStep(user, purpose, next)), next: next ?? null } };
+  } catch (err) {
+    return withoutCodeEmail(req, user, d, err);
+  }
+}
+
+/**
+ * The email provider refused the code (for example the sending domain isn't verified yet). Rather than lock
+ * everyone out (the super admin included, who has to fix it), sign-in carries on without the second step, as when
+ * email isn't set up. The error shows on the super admin overview until an email gets through again.
+ */
+function withoutCodeEmail(req: Request, user: AuthUser, d: DeviceFields, err: unknown) {
+  if (!(err instanceof CodeEmailError)) throw err;
+  audit({ id: user.id, label: `${user.role}:${user.email}` }, null, "auth.code_email_failed", { error: err.reason });
+  return issueSession(req, user, d, null);
 }
 
 authRouter.post("/register", rateLimit({ windowMs: 60 * 60_000, max: 20 }), h(async (req) => {
@@ -137,7 +152,14 @@ authRouter.post("/2fa/resume", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(
     return { ...issueSession(req, user, body, null), next: c.next };
   }
   // Reuse this challenge for the second step.
-  if (!listPasskeys(user.id).length) await sendCode(c.id);
+  if (!listPasskeys(user.id).length) {
+    try {
+      await sendCode(c.id);
+    } catch (err) {
+      completeWithoutSecondStep(c.id);
+      return { ...withoutCodeEmail(req, user, body, err), next: c.next };
+    }
+  }
   return { twoFactor: { ...describeChallenge(getChallenge(c.id, ["oauth"]), user), next: c.next } };
 }));
 
