@@ -178,3 +178,11 @@ test("if the email provider refuses the code, sign-in carries on (nobody is lock
   const { platformEmailFailure } = await import("../src/lib/email.js");
   assert.equal(platformEmailFailure(), null, "cleared once an email gets through");
 });
+
+test("saving new email settings clears an old failure", async () => {
+  run("INSERT INTO platform_settings (key, value) VALUES ('email_failure', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", JSON.stringify({ at: new Date().toISOString(), error: "The example.com domain is not verified" }));
+  const { saveSettings } = await import("../src/lib/platformSettings.js");
+  const { platformEmailFailure } = await import("../src/lib/email.js");
+  saveSettings({ EMAIL_FROM: "Slotwise <no-reply@bookwithslotwise.com>" });
+  assert.equal(platformEmailFailure(), null);
+});

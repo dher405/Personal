@@ -269,7 +269,7 @@ superRouter.put("/settings", h((req) => {
   return { groups: describeSettings() };
 }));
 
-superRouter.post("/settings/test/:group", h((req) => testSettings(req.params.group as string)));
+superRouter.post("/settings/test/:group", h((req) => testSettings(req.params.group as string, req.user!.email)));
 
 /** The models the saved Anthropic key can use, fetched fresh each time, with prices for the model picker. */
 superRouter.get("/settings/ai-models", h(async (req) => {

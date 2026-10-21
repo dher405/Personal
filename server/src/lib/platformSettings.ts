@@ -164,11 +164,27 @@ export function saveSettings(values: Record<string, string | null>) {
     }
   }
   load();
+  // New email settings: an earlier failure (e.g. sent from an unverified address) no longer applies.
+  if (Object.keys(values).some((k) => SETTING_GROUPS.find((g) => g.id === "email")!.fields.some((f) => f.name === k))) {
+    run("DELETE FROM platform_settings WHERE key = 'email_failure'");
+  }
   return Object.keys(values);
 }
 
+/** Sends a real email to the super admin who clicked Test: the only proof the whole path works (and it clears an old failure). */
+async function sendTestEmail(to: string | undefined, checked: string) {
+  if (!to) return { ok: true, message: checked };
+  const { sendEmail } = await import("./email.js");
+  try {
+    await sendEmail({ to, subject: "Slotwise email is working", text: `This test email came from ${config.email.from}. Sign-in codes, password resets and owner alerts will be sent the same way.` });
+    return { ok: true, message: `${checked} A test email was sent to ${to}: check your inbox (and spam folder).` };
+  } catch (err) {
+    return { ok: false, message: `${checked} But sending a test email to ${to} failed: ${(err as Error).message}` };
+  }
+}
+
 /** "Test" button: one harmless call per service to prove the saved keys work. */
-export async function testSettings(group: string): Promise<{ ok: boolean; message: string }> {
+export async function testSettings(group: string, testRecipient?: string): Promise<{ ok: boolean; message: string }> {
   try {
     if (group === "stripe") {
       if (!config.stripe.secretKey) return { ok: false, message: "No secret key saved" };
@@ -187,14 +203,12 @@ export async function testSettings(group: string): Promise<{ ok: boolean; messag
         const fromDomain = (config.email.from.match(/@([^>\s]+)/)?.[1] ?? "").toLowerCase();
         const fromOk = verified.some((d: string) => fromDomain === d || fromDomain.endsWith(`.${d}`));
         if (!fromOk) return { ok: false, message: `The From address (${config.email.from}) isn't on a verified domain. Verified: ${verified.join(", ")}. Change the From address to use one of them.` };
-        const { platformEmailFailure } = await import("./email.js");
-        const failure = platformEmailFailure();
-        return { ok: !failure, message: `Resend key works and ${fromDomain} is verified.${failure ? ` But the last email failed: ${failure.error}` : ""}` };
+        return sendTestEmail(testRecipient, `Resend key works and ${fromDomain} is verified.`);
       }
       if (config.email.postmarkToken) {
         const res = await fetch("https://api.postmarkapp.com/server", { headers: { "X-Postmark-Server-Token": config.email.postmarkToken, Accept: "application/json" } });
         const json: any = await res.json().catch(() => ({}));
-        return res.ok ? { ok: true, message: `Postmark server "${json.Name}" connected` } : { ok: false, message: json.Message ?? `Postmark said ${res.status}` };
+        return res.ok ? sendTestEmail(testRecipient, `Postmark server "${json.Name}" connected.`) : { ok: false, message: json.Message ?? `Postmark said ${res.status}` };
       }
       return { ok: false, message: "No Resend or Postmark key saved" };
     }
