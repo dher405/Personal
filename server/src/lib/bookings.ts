@@ -64,6 +64,7 @@ export function serializeBooking(b: Row, opts: { includeToken?: boolean } = {}) 
     meetingProvider: b.meeting_provider ?? null,
     meetingError: b.meeting_error ?? null,
     refundError: b.refund_error ?? null,
+    keptPayment: !!b.kept_payment,
     declineReason: b.decline_reason ?? null,
     smsOptIn: !!b.sms_opt_in,
     customerConfirmedAt: b.customer_confirmed_at,
@@ -272,10 +273,11 @@ export function rescheduleBooking(bookingId: string, newStart: string, opts: { s
 /**
  * Cancelling a booking refunds what the customer paid, in full, whether the business or the customer cancels
  * (customers can only cancel online inside the business's cancellation window). Moving a booking never refunds.
+ * For a late cancellation (inside that window) the business may choose keepPayment instead.
  * A refund the payment provider refuses doesn't stop the cancellation: it's recorded on the booking
  * (refund_error) so the business can refund by hand.
  */
-export async function cancelBooking(bookingId: string, opts: { byCustomer: boolean; reason?: string; quiet?: boolean }, actor: Actor) {
+export async function cancelBooking(bookingId: string, opts: { byCustomer: boolean; reason?: string; quiet?: boolean; keepPayment?: boolean }, actor: Actor) {
   const booking = getBooking(bookingId);
   if (booking.status === "cancelled") return booking;
   const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id)!;
@@ -285,9 +287,14 @@ export async function cancelBooking(bookingId: string, opts: { byCustomer: boole
       throw forbidden(`Online cancellation closes ${business.cancellation_hours}h before the appointment. Please contact ${business.name}.`);
     }
   }
-  run("UPDATE bookings SET status = 'cancelled', ics_sequence = ics_sequence + 1 WHERE id = ?", booking.id);
-  audit(actor, booking.business_id, "booking.cancelled", { bookingId, reason: opts.reason ?? "", byCustomer: opts.byCustomer });
-  for (const p of all("SELECT id FROM payments WHERE booking_id = ? AND status IN ('paid','partially_refunded')", booking.id)) {
+  // A business may keep the payment for a late cancellation: inside its own cancellation window (or after the start).
+  const keepPayment = !!opts.keepPayment && !opts.byCustomer;
+  if (keepPayment && !lateCancellation(booking, business)) {
+    throw badRequest(`Payments can only be kept for late cancellations, within ${business.cancellation_hours} hours of the appointment. Cancel with a refund, or move the booking instead.`);
+  }
+  run("UPDATE bookings SET status = 'cancelled', ics_sequence = ics_sequence + 1, kept_payment = ? WHERE id = ?", Number(keepPayment), booking.id);
+  audit(actor, booking.business_id, "booking.cancelled", { bookingId, reason: opts.reason ?? "", byCustomer: opts.byCustomer, keptPayment: keepPayment });
+  if (!keepPayment) for (const p of all("SELECT id FROM payments WHERE booking_id = ? AND status IN ('paid','partially_refunded')", booking.id)) {
     try {
       await refundPayment(p.id, undefined, actor, opts.byCustomer ? "Customer cancelled within policy" : "Cancelled by the business");
     } catch (err) {
@@ -302,6 +309,11 @@ export async function cancelBooking(bookingId: string, opts: { byCustomer: boole
   if (opts.quiet) notifyQuietly(updated, "cancelled");
   else notify("booking_cancelled", updated, changedBy(actor));
   return updated;
+}
+
+/** Inside the business's cancellation window (or already started): a cancellation the business may keep the payment for. */
+export function lateCancellation(booking: Row, business: Row) {
+  return DateTime.fromISO(booking.starts_at).diffNow("hours").hours < business.cancellation_hours;
 }
 
 /** The business accepts a pay-in-person request: it becomes a normal confirmed booking, paid in person. */

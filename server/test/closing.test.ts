@@ -67,6 +67,30 @@ test("if the refund fails, the booking is still cancelled and the business is sh
   assert.ok(one("SELECT 1 FROM audit_log WHERE action = 'payment.refund_failed'"));
 });
 
+test("late cancellations: the business can keep the payment, but only inside its cancellation window", async () => {
+  const early = await paidBooking("early@example.com");
+  const refused = await api("PATCH", `/api/admin/${bid}/bookings/${early.id}`, { status: "cancelled", keepPayment: true });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /only be kept for late cancellations/);
+  assert.equal(one("SELECT status FROM bookings WHERE id = ?", early.id)!.status, "confirmed", "nothing changed");
+
+  // Pretend it's tomorrow morning: inside the 24-hour window.
+  const late = await paidBooking("late@example.com");
+  run("UPDATE bookings SET starts_at = ?, ends_at = ? WHERE id = ?", DateTime.utc().plus({ hours: 5 }).toISO(), DateTime.utc().plus({ hours: 6 }).toISO(), late.id);
+  const kept = await api("PATCH", `/api/admin/${bid}/bookings/${late.id}`, { status: "cancelled", keepPayment: true });
+  assert.equal(kept.status, 200, JSON.stringify(kept.body));
+  assert.equal(kept.body.status, "cancelled");
+  assert.equal(kept.body.keptPayment, true);
+  assert.equal(paymentOf(late.id).status, "paid", "not refunded");
+  await settle();
+  assert.match(one("SELECT body FROM email_messages WHERE booking_id = ? AND kind = 'booking_cancelled'", late.id)!.body, /isn't refunded, under Riverside Music's cancellation policy/);
+
+  // Customers can't choose this: their online cancellation always refunds.
+  const mine = await paidBooking("customer-keep@example.com");
+  const res = await api("POST", `/api/public/manage/${mine.manage_token}/cancel`, { keepPayment: true }, "");
+  assert.equal(res.body.payments[0].status, "refunded");
+});
+
 test("closing a business cancels and refunds its upcoming bookings; it can't be reactivated; then it can be deleted", async () => {
   const a = await paidBooking("close-a@example.com"), c = await paidBooking("close-b@example.com");
   assert.equal((await api("DELETE", `/api/super/businesses/${bid}`, undefined, boss)).status, 400, "close first");

@@ -40,14 +40,16 @@ export function Bookings() {
     reload();
   });
 
-  const setStatus = (b: any, status: string) => action.run(async () => {
-    const paid = b.payments.some((p: any) => ["paid", "partially_refunded"].includes(p.status));
-    if (status === "cancelled" && !confirm(paid
-      ? `Cancel this booking? ${b.customerName} is refunded in full automatically and emailed. (To keep their payment, move the booking instead of cancelling it.)`
-      : `Cancel this booking? ${b.customerName} is emailed.`)) return;
-    await api(`/admin/${biz.id}/bookings/${b.id}`, { method: "PATCH", body: { status } });
-    reload();
-  });
+  const [cancelling, setCancelling] = useState<any>(null);
+  const setStatus = (b: any, status: string) => {
+    // Cancelling something paid asks how to handle the payment (refund, or keep it for a late cancellation).
+    if (status === "cancelled" && b.payments.some((p: any) => ["paid", "partially_refunded"].includes(p.status))) return setCancelling(b);
+    action.run(async () => {
+      if (status === "cancelled" && !confirm(`Cancel this booking? ${b.customerName} is emailed.`)) return;
+      await api(`/admin/${biz.id}/bookings/${b.id}`, { method: "PATCH", body: { status } });
+      reload();
+    });
+  };
 
   return (
     <div className="stack">
@@ -97,6 +99,7 @@ export function Bookings() {
                   <td>
                     <span className={`badge ${badge[b.status]}`}>{b.status === "requested" ? "request" : b.status.replace("_", " ")}</span>
                     {b.payInPerson && <div className="small">💵 pays in person</div>}
+                    {b.keptPayment && <div className="small muted">late cancellation: payment kept</div>}
                     {b.refundError && <div className="small" style={{ color: "var(--bad)" }} title={b.refundError}>⚠ Automatic refund failed: {b.refundError}. Refund it from Edit / move, or in your payment provider.</div>}
                     {b.customerConfirmedAt && b.status === "confirmed" && <div className="small" title="Customer confirmed attendance">✓ customer confirmed</div>}
                     {b.smsOptIn && <div className="small muted">📱 texts on</div>}
@@ -125,6 +128,7 @@ export function Bookings() {
         {bookings?.length === 0 && <p className="muted">No bookings in this range.</p>}
       </div>
       {editing && <EditBooking booking={editing} onClose={() => { setEditing(null); reload(); }} />}
+      {cancelling && <CancelBooking booking={cancelling} onClose={() => { setCancelling(null); reload(); }} />}
       {creating && <NewBooking onClose={() => { setCreating(false); reload(); reloadBiz(); }} />}
       {seriesId && <SeriesModal id={seriesId} onClose={() => { setSeriesId(null); reload(); reloadBiz(); }} />}
     </div>
@@ -351,6 +355,37 @@ function SeriesModal({ id, onClose }: { id: string; onClose: () => void }) {
             <button onClick={onClose}>Close</button>
           </div>
         </>}
+      </div>
+    </div>
+  );
+}
+
+/** Cancelling a paid booking: refund it in full, or (for a late cancellation) keep the payment. */
+function CancelBooking({ booking: b, onClose }: { booking: any; onClose: () => void }) {
+  const { biz } = useBusiness();
+  const action = useAction();
+  const paid = b.payments.filter((p: any) => ["paid", "partially_refunded"].includes(p.status)).reduce((n: number, p: any) => n + p.amount_cents - p.refunded_cents, 0);
+  const late = DateTime.fromISO(b.start).diffNow("hours").hours < biz.cancellation_hours;
+  const cancel = (keepPayment: boolean) => action.run(async () => {
+    await api(`/admin/${biz.id}/bookings/${b.id}`, { method: "PATCH", body: { status: "cancelled", keepPayment } });
+    onClose();
+  });
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal stack" onClick={(e) => e.stopPropagation()}>
+        <h2>Cancel {b.customerName}'s booking?</h2>
+        <p>{b.serviceName}, {DateTime.fromISO(b.start).setZone(biz.timezone).toFormat("ccc d LLL, h:mm a")}. They paid {money(paid, b.currency)}, and they're emailed either way.</p>
+        {action.error && <div className="error">{action.error}</div>}
+        <button className="primary" disabled={action.busy} onClick={() => cancel(false)}>Cancel and refund {money(paid, b.currency)}</button>
+        {late ? (
+          <>
+            <button className="danger" disabled={action.busy} onClick={() => cancel(true)}>Cancel and keep the payment (late cancellation)</button>
+            <p className="small muted">This is within your {biz.cancellation_hours}-hour cancellation window, so you can keep the payment. The email tells them it isn't refunded under your cancellation policy.</p>
+          </>
+        ) : (
+          <p className="small muted">This is more than {biz.cancellation_hours} hours away, so cancelling refunds them in full. To keep the payment, move the booking to another time instead (Edit / move).</p>
+        )}
+        <button disabled={action.busy} onClick={onClose}>Don't cancel</button>
       </div>
     </div>
   );

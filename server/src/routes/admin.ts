@@ -334,6 +334,8 @@ adminRouter.patch("/bookings/:id", h(async (req) => {
     start: z.string().optional(), staffId: z.string().optional(), force: z.boolean().optional(),
     status: z.enum(["confirmed", "cancelled", "completed", "no_show"]).optional(),
     priceCents: z.number().int().min(0).optional(), notes: z.string().optional(),
+    /** With status "cancelled": keep the payment (late cancellations only). */
+    keepPayment: z.boolean().optional(),
   }), req.body);
   if (body.start || body.staffId) rescheduleBooking(b.id, body.start ?? b.starts_at, { staffId: body.staffId, force: body.force }, actor(req));
   if (body.priceCents !== undefined && body.priceCents !== b.price_cents) {
@@ -341,7 +343,7 @@ adminRouter.patch("/bookings/:id", h(async (req) => {
     audit(actor(req), bid(req), "booking.price_changed", { bookingId: b.id, from: b.price_cents, to: body.priceCents });
   }
   if (body.notes !== undefined) run("UPDATE bookings SET notes = ? WHERE id = ?", body.notes, b.id);
-  if (body.status === "cancelled") await cancelBooking(b.id, { byCustomer: false }, actor(req));
+  if (body.status === "cancelled") await cancelBooking(b.id, { byCustomer: false, keepPayment: body.keepPayment }, actor(req));
   else if (body.status && body.status !== b.status) {
     run("UPDATE bookings SET status = ? WHERE id = ?", body.status, b.id);
     audit(actor(req), bid(req), "booking.status_changed", { bookingId: b.id, from: b.status, to: body.status });

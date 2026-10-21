@@ -91,6 +91,10 @@ const emailSubjects: Partial<Record<NotificationKind, string>> = {
 
 /** On a cancellation email: what was refunded (refunds can take several business days to reach the card). */
 function refundLine(booking: Row) {
+  if (booking.kept_payment) {
+    const business = one("SELECT name, cancellation_hours FROM businesses WHERE id = ?", booking.business_id)!;
+    return [`As this was cancelled less than ${business.cancellation_hours} hours before the appointment, your payment isn't refunded, under ${business.name}'s cancellation policy. Questions? Reply to this email.`];
+  }
   if (booking.refund_error) return [`We'll be in touch about refunding your payment.`];
   const refunded = one<{ n: number }>("SELECT COALESCE(SUM(refunded_cents), 0) AS n FROM payments WHERE booking_id = ?", booking.id)!.n;
   return refunded ? [`Your payment of ${formatMoney(refunded, booking.currency)} has been refunded to the card you paid with. It can take 5–10 business days to show up.`] : [];
