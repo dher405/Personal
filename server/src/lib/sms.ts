@@ -74,6 +74,7 @@ export async function sendSms(opts: SendOptions): Promise<Row> {
   };
 
   if (!to) return record("skipped", { error: "Invalid phone number" });
+  if (opts.business.is_demo) return record("skipped", { error: "Demo business: texts aren't sent" });
   if (!smsConfigured(opts.business)) return record("skipped", { error: "Texting isn't set up (connect your Twilio account under Text messages)" });
   if (!opts.force && !opts.business.sms_enabled) return record("skipped", { error: "Text messages are switched off" });
   if (isOptedOut(opts.business.id, to)) return record("skipped", { error: "Recipient replied STOP" });

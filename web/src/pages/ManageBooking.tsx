@@ -5,6 +5,7 @@ import { api, money } from "../api";
 import { useAction, useApi } from "../hooks";
 import { SlotPicker, type Slot } from "../components/SlotPicker";
 import { AddToCalendar } from "../components/AddToCalendar";
+import { DemoNote } from "./BookingPage";
 
 const statusBadge: Record<string, string> = { confirmed: "ok", pending_payment: "warn", requested: "warn", cancelled: "bad", completed: "", no_show: "bad" };
 
@@ -44,6 +45,7 @@ export function ManageBooking() {
 
   return (
     <div className="container narrow">
+      {biz.is_demo ? <DemoNote hours={3} /> : null}
       <div className="card stack">
         <div className="row"><h1 style={{ margin: 0 }}>{biz.name}</h1><span className={`badge ${statusBadge[b.status]}`}>{b.status === "requested" ? "waiting for approval" : b.status.replace("_", " ")}</span></div>
         <p>{b.serviceName} with {b.staffName}<br /><strong>{when.toLocaleString(DateTime.DATETIME_HUGE)}</strong></p>

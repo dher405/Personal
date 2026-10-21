@@ -72,6 +72,8 @@ export function hasCapacity(business: Row, metric: Metric): boolean {
 
 /** Counts one use (idempotent per ref id), then sends any 80% / 100% alerts due. */
 export function recordUse(business: Row, metric: Metric, refId: string, countIn?: DateTime) {
+  // Visitors trying the showcase don't use up its bookings (its AI replies still count, which caps that cost).
+  if (business.is_demo && metric === "bookings") return;
   // A repeating booking's later weeks count in the month they happen, not all at once when the series is made.
   const later = countIn && countIn.toUTC().startOf("month") > DateTime.utc().startOf("month");
   const res = later

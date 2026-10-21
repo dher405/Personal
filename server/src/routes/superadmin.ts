@@ -10,6 +10,7 @@ import { grantCredits, usageFor } from "../lib/usage.js";
 import { describeSettings, saveSettings, testSettings } from "../lib/platformSettings.js";
 import { enableTaxOnSubscriptions, setPlan } from "../lib/platformBilling.js";
 import { closeBusiness, deleteBusiness, pauseBilling } from "../lib/closeBusiness.js";
+import { createShowcaseBusiness, setShowcase, showcaseBusiness } from "../lib/showcase.js";
 import { emailResetLink } from "../lib/passwordReset.js";
 import { storageStatus } from "../lib/storage.js";
 import { emailLive, platformEmailFailure } from "../lib/email.js";
@@ -21,6 +22,7 @@ import { addReply, getCase, saveSupportSettings, sendTestNotification, serialize
 export const superRouter = Router();
 
 superRouter.get("/overview", h(() => ({
+  showcase: showcaseBusiness() ?? null,
   businesses: one("SELECT COUNT(*) AS n FROM businesses")!.n,
   users: one("SELECT COUNT(*) AS n FROM users")!.n,
   bookings30d: one("SELECT COUNT(*) AS n FROM bookings WHERE created_at >= datetime('now', '-30 days')")!.n,
@@ -208,7 +210,11 @@ superRouter.delete("/businesses/:id/members/:userId", h((req) => {
 superRouter.patch("/businesses/:id", h(async (req) => {
   const b = one("SELECT * FROM businesses WHERE id = ?", req.params.id);
   if (!b) throw notFound();
-  const body = parse(z.object({ suspended: z.boolean().optional(), plan: z.string().optional() }), req.body);
+  const body = parse(z.object({ suspended: z.boolean().optional(), plan: z.string().optional(), showcase: z.boolean().optional() }), req.body);
+  if (body.showcase !== undefined) {
+    if (body.showcase && (b.suspended || b.closed_at)) throw badRequest("A suspended or closed business can't be the home page demo");
+    setShowcase(b.id, body.showcase, actorOf(req.user));
+  }
   if (body.suspended !== undefined) {
     if (!body.suspended && b.closed_at) throw badRequest("This business is closed. Its billing and bookings were cancelled, so it can't simply be reactivated.");
     // Suspended businesses aren't charged: their Stripe subscription is paused, and resumes when reactivated.
@@ -294,6 +300,13 @@ superRouter.get("/packs", h(() => getPacks()));
 superRouter.post("/businesses/:id/close", h((req) => closeBusiness(req.params.id as string, actorOf(req.user))));
 /** Delete permanently (only after closing). */
 superRouter.delete("/businesses/:id", h((req) => deleteBusiness(req.params.id as string, actorOf(req.user))));
+
+/** Creates a sample music school (owned by you) and makes it the home page demo. */
+superRouter.post("/showcase/create", h((req) => {
+  const b = createShowcaseBusiness(req.user!.id);
+  setShowcase(b.id, true, actorOf(req.user));
+  return showcaseBusiness();
+}));
 
 superRouter.get("/billing/tax", h(() => ({ on: config.stripe.tax, behavior: config.stripe.taxBehavior, stripe: !!config.stripe.secretKey, mode: config.stripe.mode })));
 superRouter.post("/billing/tax/existing", h(() => enableTaxOnSubscriptions()));

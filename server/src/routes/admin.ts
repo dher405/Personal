@@ -34,6 +34,10 @@ export const adminRouter = Router({ mergeParams: true });
 adminRouter.use((req, _res, next) => {
   try {
     assertBusinessAccess(req.user, req.params.bid as string);
+    // The home page showcase is public; only the platform admin may change it.
+    if (req.method !== "GET" && req.user!.role !== "superadmin" && one("SELECT is_demo FROM businesses WHERE id = ?", req.params.bid)?.is_demo) {
+      throw forbidden("This is the platform's showcase demo business. Only the platform admin can change it.");
+    }
     next();
   } catch (err) {
     next(err);

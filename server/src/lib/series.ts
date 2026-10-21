@@ -182,7 +182,7 @@ export async function runSeriesReminders(now = DateTime.utc()) {
         ].join("\n\n"),
       });
     }
-    const admins = all("SELECT u.email FROM business_members m JOIN users u ON u.id = m.user_id WHERE m.business_id = ?", business.id);
+    const admins = business.is_demo ? [] : all("SELECT u.email FROM business_members m JOIN users u ON u.id = m.user_id WHERE m.business_id = ?", business.id);
     for (const a of admins) {
       await sendEmail({
         to: a.email, subject: `Repeating lessons ending: ${series.customer_name}, ${service.name}`,

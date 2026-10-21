@@ -108,6 +108,14 @@ export function SuperBusinessPanel() {
       <div className="card stack">
         <h2>Status</h2>
         {result && <div className="notice small">{result}</div>}
+        {!b.closed_at && !b.suspended && (
+          <label className="inline">
+            <input type="checkbox" checked={!!b.is_demo} disabled={action.busy} onChange={(e) => confirm(e.target.checked
+              ? `Use ${b.name} as the home page demo? Anyone can book with it there. Its payments switch to test mode, no emails or texts are sent, its bookings don't count, visitors' bookings are cleared after a few hours, and only you can change its settings.`
+              : `Stop using ${b.name} as the home page demo? The "Try it" section disappears from the home page, and its test-mode payments are switched off.`) && patch({ showcase: e.target.checked })} />
+            Use as the home page demo ("Try it as a customer")
+          </label>
+        )}
         {b.closed_at ? (
           <>
             <p className="small"><b>Closed</b> on {new Date(b.closed_at).toLocaleDateString()}. Its billing was cancelled and its upcoming bookings were cancelled and refunded. Its records are kept until you delete it.</p>

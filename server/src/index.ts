@@ -7,6 +7,7 @@ import { seed } from "./seed.js";
 import { db } from "./db.js";
 import { storageStatus } from "./lib/storage.js";
 import { syncStripeMode } from "./lib/stripeMode.js";
+import { clearShowcaseBookings } from "./lib/showcase.js";
 
 const storage = storageStatus();
 console[storage.persistent === false ? "warn" : "log"](`${storage.persistent === false ? "WARNING: " : ""}${storage.message}`);
@@ -38,6 +39,12 @@ setInterval(() => {
   const n = expireUnpaidBookings();
   if (n) console.log(`Expired ${n} unpaid booking(s)`);
 }, 5 * 60_000).unref();
+
+// Visitors' bookings on the home page showcase are cleared a few hours later.
+setInterval(() => {
+  const n = clearShowcaseBookings();
+  if (n) console.log(`Cleared ${n} showcase booking(s)`);
+}, 30 * 60_000).unref();
 
 // Repeating lessons: "continue for another 26 weeks?" two weeks before a series ends.
 setInterval(() => {

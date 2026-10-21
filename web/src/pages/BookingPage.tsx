@@ -125,6 +125,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
     return (
       <div className="container narrow">
         <div className="card stack">
+          {biz.demo && <DemoNote hours={biz.demo.clearedAfterHours} />}
           <h1>You're booked!</h1>
           {seriesResult && (
             <div className="notice">
@@ -149,6 +150,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
 
   return (
     <div className="container">
+      {biz.demo && <DemoNote hours={biz.demo.clearedAfterHours} />}
       {showHeader && (
         <div className="card">
           <h1>{biz.name}</h1>
@@ -274,6 +276,15 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
           <button className="primary chat-fab" onClick={() => setChatOpen(!chatOpen)}>{chatOpen ? "Close chat" : "💬 Book by chat"}</button>
         </>
       )}
+    </div>
+  );
+}
+
+/** On the home page showcase: what's real and what isn't. */
+export function DemoNote({ hours }: { hours: number }) {
+  return (
+    <div className="notice small" style={{ marginBottom: 12 }}>
+      <b>Demo business.</b> Book as if you were a customer: payments are test payments (nothing is charged), no emails or texts are sent, and demo bookings are cleared after about {hours} hours.
     </div>
   );
 }

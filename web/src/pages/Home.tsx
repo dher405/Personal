@@ -64,6 +64,7 @@ export function Home() {
   const [q, setQ] = useState("");
   const { data: businesses } = useApi<any[]>(q.trim().length > 1 ? `/public/businesses?q=${encodeURIComponent(q)}` : null);
   const isOwner = session && ["admin", "superadmin"].includes(session.user.role);
+  const { data: showcase } = useApi<{ name: string; slug: string } | null>("/public/showcase");
 
   return (
     <div className="lp">
@@ -96,6 +97,7 @@ export function Home() {
               <li>{plans?.find((p) => !p.monthlyPriceCents) ? `Free for up to ${plans.find((p) => !p.monthlyPriceCents)!.bookingsPerMonth} bookings a month` : "Start on the free plan"}</li>
               <li>Works on any website and social profile</li>
             </ul>
+            {showcase && <p className="small" style={{ marginTop: 14 }}><a href="#demo"><b>Try booking a lesson as a customer →</b></a></p>}
           </div>
           <BookingPreview />
         </div>
@@ -159,6 +161,35 @@ export function Home() {
           </div>
         </div>
       </section>
+
+      {showcase && (
+        <section className="lp-section" id="demo">
+          <div className="lp-wrap lp-two lp-demo">
+            <div>
+              <div className="lp-section-head left">
+                <div className="lp-eyebrow">Live demo</div>
+                <h2>Try it as a customer</h2>
+                <p>This is a real Slotwise booking calendar for a sample music school, {showcase.name}, embedded just as it would be on your own website. Go ahead and book a lesson.</p>
+              </div>
+              <ul className="lp-checks lp-demo-list">
+                <li>Pick a lesson, a teacher and a time</li>
+                <li>Try paying: it's a test payment, so nothing is charged</li>
+                <li>Then move or cancel it from the confirmation page</li>
+                <li>Ask the "Book by chat" assistant on the full page</li>
+              </ul>
+              <p className="small muted">It's a sandbox: no emails or texts are sent, and demo bookings are cleared after a few hours.</p>
+              <div className="lp-cta-row">
+                <a className="btn lp-btn-big" href={`/b/${showcase.slug}`} target="_blank" rel="noreferrer">Open the full booking page ↗</a>
+                <Link className="btn primary lp-btn-big" to="/register?provider=1">Make one like it</Link>
+              </div>
+            </div>
+            <div className="lp-demo-frame">
+              <div className="lp-code-bar"><i /><i /><i /><span>riversidemusic.example</span></div>
+              <iframe title={`${showcase.name} booking demo`} src={`/embed/${showcase.slug}`} loading="lazy" />
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="lp-section lp-tinted">
         <div className="lp-wrap lp-two">

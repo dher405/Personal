@@ -253,6 +253,16 @@ Each service has a **Where** setting (Services & prices): *in person*, *online*,
 
 The link is made before any confirmation goes out (`lib/meetings.ts`, called from `notify`), so it's in the customer's email, calendar invite (as the location), texts and manage page ("Join the online meeting"), and in the owner's calendar. If it can't be made (for example, the staff member hasn't connected their calendar), the booking still confirms, the customer is told the link will follow, and Bookings shows the reason with **Retry** and **Paste link** (which sends the customer an updated confirmation). Provider addresses can be overridden for testing with `ZOOM_OAUTH_URL`, `ZOOM_API_URL` and `RINGCENTRAL_SERVER_URL`.
 
+## Home page demo ("Try it as a customer")
+
+The super admin picks one business as the home page demo: **Super admin → Overview → Home page demo**, or open a business → Account & billing ★ → Status → "Use as the home page demo". **Create the sample "Riverside Music" demo** makes a sample music school owned by the super admin. The home page then shows its live, embedded booking calendar for visitors to try. The demo business is a sandbox:
+- payments are test payments, so nothing is charged;
+- no emails or texts go out, and its bookings don't count toward an allowance (AI replies still do, which caps that cost);
+- visitors' bookings are deleted 3 hours after they're made (`lib/showcase.ts`);
+- only the super admin can change its settings.
+
+In production with `DEMO_MODE` off, the sample `…@demo.test` accounts can't sign in.
+
 ## Owner guide and support cases
 
 **Owner guide (`/guide`).** The business owner guide is built into the site, with a contents list. Every business's Dashboard and the top of each admin page link to it. Its text is `web/src/content/owner-guide.md`, made from the guide's Claude Docs export with `python3 scripts/import-guide.py <export> --date "<Month D, YYYY>"`. Committing that file publishes the update with the next deploy.

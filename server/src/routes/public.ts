@@ -15,6 +15,7 @@ import { channelsFor, smsReady } from "../lib/channels.js";
 import { cancelSeries, createSeries, renewSeries } from "../lib/series.js";
 import { MEETING_LABEL } from "../lib/meetings.js";
 import { legalInfo } from "../lib/platformSettings.js";
+import { SHOWCASE_KEEP_HOURS, showcaseBusiness } from "../lib/showcase.js";
 
 export const publicRouter = Router();
 
@@ -35,6 +36,9 @@ publicRouter.get("/businesses", h((req) => {
 }));
 
 /** Plan prices for the marketing page, straight from what the super admin set in Plans & fees. */
+/** The business visitors can try booking with on the home page, if the super admin has chosen one. */
+publicRouter.get("/showcase", h(() => showcaseBusiness() ?? null));
+
 /** Details for the Terms and Privacy pages (set under Super admin → Settings → Legal pages). */
 publicRouter.get("/legal", h(() => legalInfo()));
 
@@ -55,6 +59,8 @@ publicRouter.get("/businesses/:slug", h((req) => {
     cashRequests: !!b.cash_requests && !!b.require_payment && b.payment_provider !== "none",
     // Customers may book the same time every week (only where payment isn't taken online at booking).
     recurring: b.allow_recurring ? { weeks: b.recurring_weeks } : null,
+    // The home page showcase: the booking page explains it's a demo (test payments, nothing sent, cleared later).
+    demo: !!b.is_demo ? { clearedAfterHours: SHOWCASE_KEEP_HOURS } : null,
     onlineBookingPaused: !roomFor(b, "bookings"),
     services: all("SELECT id, name, description, category, duration_min, price_cents, deposit_cents, location_mode FROM services WHERE business_id = ? AND active = 1 ORDER BY category, name", b.id),
     // Shown to customers choosing online ("Online (Zoom)").
@@ -122,7 +128,7 @@ function bookingByToken(token: string) {
 
 publicRouter.get("/manage/:token", h((req) => {
   const b = bookingByToken(req.params.token as string);
-  const biz = one("SELECT name, slug, timezone, cancellation_hours, phone, address FROM businesses WHERE id = ?", b.business_id)!;
+  const biz = one("SELECT name, slug, timezone, cancellation_hours, phone, address, is_demo FROM businesses WHERE id = ?", b.business_id)!;
   return { booking: serializeBooking(b, { includeToken: true }), business: biz };
 }));
 

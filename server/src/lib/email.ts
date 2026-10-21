@@ -134,6 +134,7 @@ export async function sendBusinessEmail(business: Row, msg: BusinessEmail): Prom
     );
     return one("SELECT * FROM email_messages WHERE id = ?", id)!;
   };
+  if (business.is_demo) return record("not_sent", "Demo business: emails aren't sent");
   if (!emailReady(business)) return record("not_sent", "Customer email isn't set up yet (Admin → Email)");
   try {
     await deliver(e, msg, business.name);

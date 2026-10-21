@@ -51,13 +51,36 @@ export function SuperAdmin() {
   );
 }
 
+/** Which business visitors can try booking with on the home page. */
+function ShowcaseCard({ showcase, reload }: { showcase: { id: string; name: string; slug: string } | null; reload: () => void }) {
+  const action = useAction();
+  return (
+    <div className="card stack">
+      <h3 style={{ margin: 0 }}>Home page demo</h3>
+      {action.error && <div className="error">{action.error}</div>}
+      {showcase ? (
+        <p className="small" style={{ margin: 0 }}>
+          ✅ Visitors can try booking with <b>{showcase.name}</b> in the "Try it as a customer" section of the <a href="/#demo" target="_blank" rel="noreferrer">home page</a>.
+          It's a sandbox: test payments only, no emails or texts, and bookings are cleared after a few hours. Change or turn it off under <Link to={`/admin/${showcase.id}/account`}>{showcase.name} → Account &amp; billing ★ → Status</Link>.
+        </p>
+      ) : (
+        <>
+          <p className="small" style={{ margin: 0 }}>No demo on the home page yet. Pick any business under Businesses (open it, then Account &amp; billing ★ → Status → "Use as the home page demo"), or create a sample music school for it.</p>
+          <div><button className="primary" disabled={action.busy} onClick={() => action.run(async () => { await api("/super/showcase/create", { method: "POST" }); reload(); })}>Create the sample "Riverside Music" demo</button></div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Overview() {
-  const { data } = useApi<any>("/super/overview");
+  const { data, reload } = useApi<any>("/super/overview");
   if (!data) return <div className="muted">Loading…</div>;
   return (
     <div className="stack">
       {data.storage?.persistent === false && <div className="error"><b>Data isn't being kept.</b> {data.storage.message}</div>}
       {data.storage?.persistent === true && <div className="small muted">✓ {data.storage.message}</div>}
+      <ShowcaseCard showcase={data.showcase} reload={reload} />
       {data.emailFailure && <div className="error"><b>Platform emails are failing</b> (last at {new Date(data.emailFailure.at).toLocaleString()}): <code>{data.emailFailure.error}</code>. Sign-in codes, password resets and owner alerts aren't getting through, so people are signing in without the emailed code until this is fixed. Check <Link to="/super/settings">Settings → Email</Link> (From address on your verified domain, correct API key) and click Test.</div>}
       {data.twoFactorEmail === false && <div className="error"><b>Two-step sign-in is paused.</b> Sign-in codes are emailed, and platform email isn't set up, so everyone without a passkey is signing in with a password only. Add a Resend or Postmark key under <Link to="/super/settings">Settings → Email</Link> to turn it on.</div>}
       <div className="grid">

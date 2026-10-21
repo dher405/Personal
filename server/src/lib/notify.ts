@@ -172,7 +172,7 @@ const adminSubjects: Record<NotificationKind, string> = {
 /** Emails the business's admins when a customer books, moves, confirms or cancels (switch in Calendar sync). */
 export async function dispatchAdminEmail(kind: NotificationKind, booking: Row) {
   const business = one("SELECT * FROM businesses WHERE id = ?", booking.business_id)!;
-  if (!business.email_admin_alerts && kind !== "booking_requested") return;
+  if (business.is_demo || (!business.email_admin_alerts && kind !== "booking_requested")) return;
   const service = one("SELECT name FROM services WHERE id = ?", booking.service_id)!;
   const staff = one("SELECT name FROM staff WHERE id = ?", booking.staff_id)!;
   const when = DateTime.fromISO(booking.starts_at).setZone(business.timezone).toFormat("ccc LLL d 'at' h:mm a");

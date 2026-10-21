@@ -430,6 +430,7 @@ CREATE INDEX IF NOT EXISTS idx_series_business ON booking_series(business_id, st
 `);
 addColumn("bookings", "refund_error", "TEXT");
 addColumn("businesses", "closed_at", "TEXT");
+addColumn("businesses", "is_demo", "INTEGER NOT NULL DEFAULT 0"); // the home page showcase (lib/showcase.ts)
 addColumn("bookings", "kept_payment", "INTEGER NOT NULL DEFAULT 0"); // late cancellation: the business kept the payment
 addColumn("bookings", "series_id", "TEXT REFERENCES booking_series(id) ON DELETE SET NULL");
 

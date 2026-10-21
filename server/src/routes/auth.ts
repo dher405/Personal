@@ -109,6 +109,8 @@ authRouter.post("/login", rateLimit({ windowMs: 15 * 60_000, max: 30 }), h(async
   const body = parse(z.object({ email: z.string(), password: z.string(), ...deviceFields }), req.body);
   const row = one("SELECT * FROM users WHERE email = ?", body.email.trim());
   if (!row || !(await checkPassword(body.password, row.password_hash))) throw new HttpError(401, "Wrong email or password");
+  // The sample accounts (…@demo.test, published in the README) only work while DEMO_MODE is on.
+  if (config.isProduction && !config.demoMode && /\.test$/i.test(row.email) && row.role !== "superadmin") throw new HttpError(401, "Wrong email or password");
   return afterFirstStep(req, { id: row.id, email: row.email, name: row.name, role: row.role }, body, "login");
 }));
 
