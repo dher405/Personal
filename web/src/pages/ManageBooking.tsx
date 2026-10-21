@@ -6,6 +6,7 @@ import { useAction, useApi } from "../hooks";
 import { SlotPicker, type Slot } from "../components/SlotPicker";
 import { AddToCalendar } from "../components/AddToCalendar";
 import { DemoNote } from "./BookingPage";
+import { PoweredBy } from "../components/PoweredBy";
 
 const statusBadge: Record<string, string> = { confirmed: "ok", pending_payment: "warn", requested: "warn", cancelled: "bad", completed: "", no_show: "bad" };
 
@@ -124,6 +125,7 @@ export function ManageBooking() {
           })}>Move to {slot ? DateTime.fromISO(slot.start).setZone(biz.timezone).toFormat("ccc d LLL, h:mm a") : "…"}</button>
         </div>
       )}
+      {biz.poweredBy && <PoweredBy from={biz.slug} />}
     </div>
   );
 }

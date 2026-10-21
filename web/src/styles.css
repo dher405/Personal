@@ -254,3 +254,10 @@ html[data-embed] .container { padding: 8px; }
 .legal { line-height: 1.6; }
 .legal h2 { font-size: 1.15rem; margin-top: 28px; }
 .legal li { margin-bottom: 6px; }
+
+/* "Powered by Slotwise" on free-plan booking pages */
+.powered-by { text-align: center; margin: 18px 0 8px; font-size: .82rem; }
+.powered-by a { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); }
+.powered-by a:hover { color: var(--accent); border-color: var(--accent); }
+.powered-by b { color: var(--text); }
+.powered-by-mark { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: var(--accent); color: var(--accent-text); font-weight: 700; font-size: .7rem; }

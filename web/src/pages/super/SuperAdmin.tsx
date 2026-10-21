@@ -223,7 +223,7 @@ function Plans() {
       {action.error && <div className="error">{action.error}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Max staff</th><th>Bookings / mo</th><th>AI chat</th><th>AI messages / mo</th><th title="Shown on the home page and on businesses' Plan & billing page">Visible to customers</th><th /></tr></thead>
+          <thead><tr><th>ID</th><th>Name</th><th>Monthly price ($)</th><th>Max staff</th><th>Bookings / mo</th><th>AI chat</th><th>AI messages / mo</th><th title="Shown on the home page and on businesses' Plan & billing page">Visible to customers</th><th title="Booking pages and customer emails say Powered by Slotwise">"Powered by" badge</th><th /></tr></thead>
           <tbody>
             {data.map((p, i) => (
               <tr key={i}>
@@ -240,6 +240,12 @@ function Plans() {
                     {p.visible !== false ? "Shown" : "Hidden"}
                   </label>
                 </td>
+                <td>
+                  <label className="inline small">
+                    <input type="checkbox" checked={p.poweredBy ?? !p.monthlyPriceCents} onChange={(e) => update(i, { poweredBy: e.target.checked })} />
+                    {(p.poweredBy ?? !p.monthlyPriceCents) ? "On" : "Off"}
+                  </label>
+                </td>
                 <td>{p.id !== "free" && <button className="danger" onClick={() => setData(data.filter((_, j) => j !== i))}>Remove</button>}</td>
               </tr>
             ))}
@@ -247,12 +253,13 @@ function Plans() {
         </table>
       </div>
       <div className="row">
-        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 0, aiMessagesPerMonth: 0, visible: true }])}>+ Add plan</button>
+        <button onClick={() => setData([...data, { id: "new-plan", name: "New plan", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 0, aiMessagesPerMonth: 0, visible: true, poweredBy: true }])}>+ Add plan</button>
         <button className="primary" disabled={action.busy} onClick={() => action.run(async () => { setData(await api("/super/plans", { method: "PUT", body: data })); setSaved(true); setTimeout(() => setSaved(false), 2000); })}>Save plans</button>
         {saved && <span className="notice small">Saved</span>}
       </div>
       <p className="small muted">Price changes apply to new subscriptions and plan switches; existing Stripe subscriptions keep their price until changed. Allowance changes apply immediately.</p>
       <p className="small muted"><b>Hidden plans</b> (such as a tester plan) don't appear on the home page or on a business's Plan &amp; billing page, and businesses can't choose them. Give one to a business yourself under <b>Businesses</b> → the business → Plan. A business already on a hidden plan keeps it.</p>
+      <p className="small muted"><b>"Powered by" badge:</b> businesses on these plans show a small "Powered by Slotwise" link (to your home page) at the bottom of their booking page, website calendar and booking-management page, and a one-line footer in their customer emails. It's on for free plans by default; paying for a plan without it is a reason to upgrade. The home page demo never shows it.</p>
       <TaxBox />
       <Packs />
     </div>

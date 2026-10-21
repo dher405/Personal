@@ -253,6 +253,10 @@ Each service has a **Where** setting (Services & prices): *in person*, *online*,
 
 The link is made before any confirmation goes out (`lib/meetings.ts`, called from `notify`), so it's in the customer's email, calendar invite (as the location), texts and manage page ("Join the online meeting"), and in the owner's calendar. If it can't be made (for example, the staff member hasn't connected their calendar), the booking still confirms, the customer is told the link will follow, and Bookings shows the reason with **Retry** and **Paste link** (which sends the customer an updated confirmation). Provider addresses can be overridden for testing with `ZOOM_OAUTH_URL`, `ZOOM_API_URL` and `RINGCENTRAL_SERVER_URL`.
 
+## "Powered by Slotwise"
+
+Businesses on plans with the **"Powered by" badge** (on for free plans by default; set per plan in **Super admin → Plans & fees**) show a small "Powered by Slotwise" link at the bottom of their booking page, website calendar and booking-management page. It links to the home page with `?ref=powered-by&from=<slug>`. Their customer emails also get a one-line footer (`?ref=email`). The home page demo never shows it.
+
 ## Home page demo ("Try it as a customer")
 
 The super admin picks one business as the home page demo: **Super admin → Overview → Home page demo**, or open a business → Account & billing ★ → Status → "Use as the home page demo". **Create the sample "Riverside Music" demo** makes a sample music school owned by the super admin. The home page then shows its live, embedded booking calendar for visitors to try. The demo business is a sandbox:

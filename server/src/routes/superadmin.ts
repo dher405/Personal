@@ -337,12 +337,15 @@ superRouter.put("/plans", h((req) => {
     maxStaff: z.number().int().min(1), aiChat: z.boolean(),
     bookingsPerMonth: z.number().int().min(0), aiMessagesPerMonth: z.number().int().min(0),
     visible: z.boolean().default(true),
+    poweredBy: z.boolean().optional(),
   })).min(1), req.body);
   if (!plans.some((p) => p.id === "free")) throw badRequest("A 'free' plan must exist (it is the fallback when subscriptions end)");
   if (!plans.find((p) => p.id === "free")!.visible) throw badRequest("The 'free' plan must stay visible: it's the plan new businesses start on");
-  savePlans(plans);
-  audit(actorOf(req.user), null, "plans.updated", { plans });
-  return plans;
+  // Free plans carry "Powered by Slotwise" unless it's switched off.
+  const filled = plans.map((p) => ({ ...p, poweredBy: p.poweredBy ?? p.monthlyPriceCents === 0 }));
+  savePlans(filled);
+  audit(actorOf(req.user), null, "plans.updated", { plans: filled });
+  return filled;
 }));
 
 superRouter.get("/payments", h(() => all(

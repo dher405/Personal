@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { config } from "../config.js";
 import { newId, one, run, type Row } from "../db.js";
 import { channelsFor, emailReady, type EmailChannel } from "./channels.js";
+import { showsPoweredBy } from "./plans.js";
 
 export interface Attachment { filename: string; content: string; contentType: string }
 export interface Email { to: string; subject: string; text: string; html?: string; attachments?: Attachment[] }
@@ -136,6 +137,8 @@ export async function sendBusinessEmail(business: Row, msg: BusinessEmail): Prom
   };
   if (business.is_demo) return record("not_sent", "Demo business: emails aren't sent");
   if (!emailReady(business)) return record("not_sent", "Customer email isn't set up yet (Admin → Email)");
+  // Free plans carry a small "Powered by Slotwise" line, which helps other businesses find it.
+  if (showsPoweredBy(business)) msg = { ...msg, text: `${msg.text}\n\n--\nBooking powered by Slotwise. Take bookings like this for free: ${config.webUrl}/?ref=email` };
   try {
     await deliver(e, msg, business.name);
     return record("sent");

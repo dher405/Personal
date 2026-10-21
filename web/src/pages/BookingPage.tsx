@@ -7,6 +7,7 @@ import { useAction, useApi } from "../hooks";
 import { SlotPicker, type Slot } from "../components/SlotPicker";
 import { ChatWidget } from "../components/ChatWidget";
 import { AddToCalendar } from "../components/AddToCalendar";
+import { PoweredBy } from "../components/PoweredBy";
 
 /** Tells the page that embeds us (embed.js) how tall we are, so its iframe never shows a scrollbar. */
 function useReportHeight(enabled: boolean) {
@@ -144,6 +145,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
             ? <a href={manageHref(done)} className="btn" {...newTab}>Manage or reschedule</a>
             : <Link to={manageHref(done)} className="btn">Manage or reschedule</Link>}
         </div>
+        {biz.poweredBy && <PoweredBy from={biz.slug} />}
       </div>
     );
   }
@@ -261,6 +263,7 @@ export function BookingPage({ embed = false }: { embed?: boolean }) {
         )}
       </div>
       )}
+      {biz.poweredBy && <PoweredBy from={biz.slug} />}
 
       {!embed && biz.aiChat && (
         <>

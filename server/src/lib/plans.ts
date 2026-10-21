@@ -11,12 +11,14 @@ export interface Plan {
   aiMessagesPerMonth: number;
   /** Shown on the home page and offered on businesses' Plan & billing page. Hidden plans (e.g. for testers) are assigned by the super admin. */
   visible: boolean;
+  /** Shows "Powered by Slotwise" (linking to the home page) on the business's booking pages and customer emails. */
+  poweredBy: boolean;
 }
 
 export const DEFAULT_PLANS: Plan[] = [
-  { id: "free", name: "Starter", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 25, aiMessagesPerMonth: 0, visible: true },
-  { id: "pro", name: "Pro", monthlyPriceCents: 2900, maxStaff: 5, aiChat: true, bookingsPerMonth: 300, aiMessagesPerMonth: 1000, visible: true },
-  { id: "business", name: "Business", monthlyPriceCents: 7900, maxStaff: 50, aiChat: true, bookingsPerMonth: 2000, aiMessagesPerMonth: 5000, visible: true },
+  { id: "free", name: "Starter", monthlyPriceCents: 0, maxStaff: 1, aiChat: false, bookingsPerMonth: 25, aiMessagesPerMonth: 0, visible: true, poweredBy: true },
+  { id: "pro", name: "Pro", monthlyPriceCents: 2900, maxStaff: 5, aiChat: true, bookingsPerMonth: 300, aiMessagesPerMonth: 1000, visible: true, poweredBy: false },
+  { id: "business", name: "Business", monthlyPriceCents: 7900, maxStaff: 50, aiChat: true, bookingsPerMonth: 2000, aiMessagesPerMonth: 5000, visible: true, poweredBy: false },
 ];
 
 const ALLOWANCES = ["bookingsPerMonth", "aiMessagesPerMonth"] as const;
@@ -32,6 +34,7 @@ export function getPlans(): Plan[] {
     const { platformFeeBps: _fee, smsPerMonth: _sms, ...filled } = p as Plan & { platformFeeBps?: number; smsPerMonth?: number };
     for (const k of ALLOWANCES) filled[k] = p[k] ?? d?.[k] ?? 0;
     filled.visible = p.visible ?? true; // plans saved before this setting existed were all shown
+    filled.poweredBy = p.poweredBy ?? filled.monthlyPriceCents === 0; // free plans carry the badge unless switched off
     return filled;
   });
 }
@@ -60,6 +63,9 @@ export function savePlans(plans: Plan[]) {
     JSON.stringify(plans),
   );
 }
+
+/** Whether this business's booking pages and customer emails say "Powered by Slotwise". The home page demo never does. */
+export const showsPoweredBy = (business: Record<string, any>) => !business.is_demo && getPlan(business.plan).poweredBy;
 
 /** The plans businesses can see and choose (plus the one a business is already on, even if it's hidden). */
 export const visiblePlans = (currentPlanId?: string) => getPlans().filter((p) => p.visible || p.id === currentPlanId);

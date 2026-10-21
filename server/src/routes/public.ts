@@ -6,7 +6,7 @@ import { findSlotsLive, freeInConnectedCalendars } from "../lib/availability.js"
 import { cancelBooking, confirmAttendance, createBooking, rescheduleBooking, serializeBooking, startPayment, getBooking } from "../lib/bookings.js";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
 import { h, parse } from "../lib/http.js";
-import { getPlan, getPlans, visiblePlans } from "../lib/plans.js";
+import { getPlan, getPlans, showsPoweredBy, visiblePlans } from "../lib/plans.js";
 import { meter } from "../lib/usage.js";
 import { aiAvailable, chat } from "../ai/chat.js";
 import { customerIcs } from "../lib/ics.js";
@@ -55,6 +55,7 @@ publicRouter.get("/businesses/:slug", h((req) => {
     cancellationHours: b.cancellation_hours, requirePayment: !!b.require_payment && b.payment_provider !== "none",
     aiChat: aiChatEnabled(b),
     smsEnabled: smsReady(b),
+    poweredBy: showsPoweredBy(b),
     // Customers may ask to pay in person instead of online (the business accepts or declines).
     cashRequests: !!b.cash_requests && !!b.require_payment && b.payment_provider !== "none",
     // Customers may book the same time every week (only where payment isn't taken online at booking).
@@ -129,7 +130,7 @@ function bookingByToken(token: string) {
 publicRouter.get("/manage/:token", h((req) => {
   const b = bookingByToken(req.params.token as string);
   const biz = one("SELECT name, slug, timezone, cancellation_hours, phone, address, is_demo FROM businesses WHERE id = ?", b.business_id)!;
-  return { booking: serializeBooking(b, { includeToken: true }), business: biz };
+  return { booking: serializeBooking(b, { includeToken: true }), business: { ...biz, poweredBy: showsPoweredBy(one("SELECT plan, is_demo FROM businesses WHERE id = ?", b.business_id)!) } };
 }));
 
 publicRouter.post("/manage/:token/reschedule", h(async (req) => {
