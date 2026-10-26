@@ -1,5 +1,6 @@
 import { all, one, run } from "../db.js";
 import { articleIdeas, assessAndDraft, writeArticle } from "./agent.js";
+import { parseFrontMatter } from "./blog.js";
 import { communityAllowed, mayMentionProduct, promoRatio, queueFull } from "./guardrails.js";
 import { discover } from "./sources.js";
 import { getSettings, logEvent, now, type MarketingSettings } from "./store.js";
@@ -104,7 +105,8 @@ async function blog(s: MarketingSettings, runId: number) {
     if (!slug || one("SELECT 1 FROM marketing_articles WHERE slug = ?", slug)) continue;
     const body = await writeArticle(s, idea);
     if (!body) continue;
-    run("INSERT INTO marketing_articles (title, slug, body, created_at) VALUES (?,?,?,?)", idea.title, slug, body, now());
+    const description = (parseFrontMatter(body).meta.description ?? "").slice(0, 300);
+    run("INSERT INTO marketing_articles (title, slug, body, description, created_at, updated_at) VALUES (?,?,?,?,?,?)", idea.title, slug, body, description, now(), now());
     logEvent("article", `Wrote a blog draft: ${idea.title}`, { level: "success", runId });
     return `Wrote "${idea.title}"`;
   }

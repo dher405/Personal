@@ -20,15 +20,19 @@ const fakeUrl = await new Promise<string>((resolve) => {
         const send = (type: string, data: object) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
         send("message_start", { message: { id: "msg_blog", type: "message", role: "assistant", model: parsed.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } });
         send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
-        send("content_block_delta", { index: 0, delta: { type: "text_delta", text: "---\ntitle: Choosing a booking app\n---\n# Choosing a booking app\n" } });
+        send("content_block_delta", { index: 0, delta: { type: "text_delta", text: "---\ntitle: Choosing a booking app\ndescription: How to pick booking software for a small salon.\nslug: choosing\n---\n# Choosing a booking app\n\nStart with **reminders**. <script>alert(1)</script> [bad](javascript:alert(1)) [good](https://example.com)\n" } });
         send("content_block_stop", { index: 0 });
         send("message_delta", { delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 20 } });
         send("message_stop", {});
         return res.end();
       }
-      const ideas = !!parsed.output_config?.format?.schema?.properties?.ideas;
+      const props = parsed.output_config?.format?.schema?.properties ?? {};
+      const ideas = !!props.ideas;
+      const listing = !ideas && !("relevant" in props);
       const answer = ideas
         ? { ideas: [{ title: "How to choose a booking app for your salon", target_query: "salon booking app", why: "Several people asked" }] }
+        : listing
+        ? Object.fromEntries(Object.keys(props).map((k) => [k, k === "tagline" ? "Online booking for independent pros" : `Sample ${k} for Slotwise`]))
         : {
             relevant: !user.includes("unrelated"), relevance: user.includes("unrelated") ? 2 : 8,
             reason: user.includes("unrelated") ? "Not about booking" : "Asks for a salon booking tool",
@@ -191,16 +195,104 @@ test("once too many posts mention the product, new drafts are pure help", async 
   assert.ok(drafts.length > 0 && drafts.every((d: any) => d.mentions_product === 0));
 });
 
-test("blog drafts are based on collected questions and can be marked published", async () => {
+test("blog drafts are based on collected questions", async () => {
   await api("POST", "/api/super/marketing/run/blog");
   await waitForIdle();
   const [article] = (await api("GET", "/api/super/marketing/articles")).body;
   assert.equal(article.title, "How to choose a booking app for your salon");
   assert.match(article.body, /^---\ntitle:/);
+  assert.equal(article.description, "How to pick booking software for a small salon.", "taken from the article's header");
   const ideasRequest = requests.find((r) => r.output_config?.format?.schema?.properties?.ideas);
   assert.match(ideasRequest.messages[0].content, /salon booking app for my salon/);
-  assert.equal((await api("PATCH", `/api/super/marketing/articles/${article.id}`, { status: "published", publishedUrl: "https://example.com/blog/booking" })).status, 200);
-  assert.equal((await api("GET", "/api/super/marketing/articles")).body[0].published_url, "https://example.com/blog/booking");
+});
+
+test("publishing on the site: /blog pages, safe rendering, sitemap and robots.txt", async () => {
+  const [article] = (await api("GET", "/api/super/marketing/articles")).body;
+  const page = (path: string) => fetch(base + path).then(async (r) => ({ status: r.status, text: await r.text(), type: r.headers.get("content-type") }));
+
+  // Drafts aren't public.
+  assert.notEqual((await page(`/blog/${article.slug}`)).status, 200);
+  assert.doesNotMatch((await page("/blog")).text, /choose a booking app/);
+
+  // Edit, preview, publish.
+  const edited = await api("PATCH", `/api/super/marketing/articles/${article.id}`, { title: "Choosing booking software for a salon", description: "A short guide.", body: article.body });
+  assert.equal(edited.status, 200);
+  const preview = (await api("POST", "/api/super/marketing/articles/preview", { body: article.body })).body.html;
+  assert.match(preview, /<strong>reminders<\/strong>/);
+  assert.doesNotMatch(preview, /<script>/, "raw HTML from the model is never run");
+  assert.doesNotMatch(preview, /javascript:/);
+  assert.equal((await api("POST", `/api/super/marketing/articles/${article.id}/status`, { action: "publish_site" }, owner)).status, 403);
+  const published = (await api("POST", `/api/super/marketing/articles/${article.id}/status`, { action: "publish_site" })).body;
+  assert.equal(published.status, "published");
+  assert.equal(published.on_site, 1);
+  assert.match(published.published_url, new RegExp(`/blog/${article.slug}$`));
+
+  const post = await page(`/blog/${article.slug}`);
+  assert.equal(post.status, 200);
+  assert.match(post.type!, /text\/html/);
+  assert.match(post.text, /<title>Choosing booking software for a salon \| Slotwise<\/title>/);
+  assert.match(post.text, /<meta name="description" content="A short guide.">/);
+  assert.match(post.text, new RegExp(`<link rel="canonical" href="[^"]+/blog/${article.slug}">`));
+  assert.match(post.text, /"@type":"BlogPosting"/);
+  assert.match(post.text, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/, "shown as text, not run");
+  assert.doesNotMatch(post.text, /<script>alert/);
+  assert.match(post.text, /href="https:\/\/example.com" rel="nofollow noopener"/);
+  assert.match(post.text, /Create your booking page/);
+  assert.doesNotMatch(post.text, /^---/m, "the header block isn't shown");
+
+  assert.match((await page("/blog")).text, /Choosing booking software for a salon/);
+  const sitemap = await page("/sitemap.xml");
+  assert.match(sitemap.type!, /xml/);
+  assert.match(sitemap.text, new RegExp(`/blog/${article.slug}</loc>`));
+  const robots = await page("/robots.txt");
+  assert.match(robots.text, /Disallow: \/super/);
+  assert.match(robots.text, /Sitemap: .*\/sitemap.xml/);
+
+  // Unpublish takes it off the site.
+  await api("POST", `/api/super/marketing/articles/${article.id}/status`, { action: "unpublish" });
+  assert.notEqual((await page(`/blog/${article.slug}`)).status, 200);
+  assert.doesNotMatch((await page("/sitemap.xml")).text, new RegExp(article.slug));
+  // Published somewhere else needs its address.
+  assert.equal((await api("POST", `/api/super/marketing/articles/${article.id}/status`, { action: "publish_external" })).status, 400);
+  assert.equal((await api("POST", `/api/super/marketing/articles/${article.id}/status`, { action: "publish_external", publishedUrl: "https://medium.com/@me/post" })).body.published_url, "https://medium.com/@me/post");
+});
+
+test("directory kit: listing copy for each directory's fields, then tracking", async () => {
+  const list = (await api("GET", "/api/super/marketing/directories")).body;
+  assert.ok(list.length >= 8);
+  const ph = list.find((d: any) => d.id === "producthunt");
+  assert.equal(ph.status, "todo");
+  assert.equal((await api("POST", "/api/super/marketing/directories/nope/write")).status, 404);
+
+  assert.equal((await api("POST", "/api/super/marketing/directories/producthunt/write", { instruction: "Focus on music teachers" })).body.started, true);
+  let d: any;
+  for (let i = 0; i < 100; i++) {
+    d = (await api("GET", "/api/super/marketing/directories")).body.find((x: any) => x.id === "producthunt");
+    if (d.status !== "drafting") break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.equal(d.status, "ready", d.error);
+  assert.deepEqual(Object.keys(d.copy).sort(), ph.fields.map((f: any) => f.key).sort(), "one value per form field");
+  assert.equal(d.copy.tagline, "Online booking for independent pros");
+  const req = requests.findLast((r) => r.output_config?.format?.schema?.properties?.first_comment);
+  assert.match(req.messages[0].content, /Product Hunt/);
+  assert.match(req.messages[0].content, /Focus on music teachers/);
+  assert.match(req.system[0].text, /Never invent customer numbers, ratings, awards, reviews or testimonials/);
+
+  // Your edits, then submitted and live with the listing's link.
+  assert.equal((await api("PATCH", "/api/super/marketing/directories/producthunt", { copy: { ...d.copy, tagline: "Booking for music teachers" } })).status, 200);
+  assert.equal((await api("PATCH", "/api/super/marketing/directories/producthunt", { status: "submitted", listingUrl: "javascript:alert(1)" })).status, 400);
+  await api("PATCH", "/api/super/marketing/directories/producthunt", { status: "submitted", listingUrl: "https://www.producthunt.com/products/slotwise" });
+  await api("PATCH", "/api/super/marketing/directories/producthunt", { status: "live" });
+  d = (await api("GET", "/api/super/marketing/directories")).body.find((x: any) => x.id === "producthunt");
+  assert.equal(d.status, "live");
+  assert.equal(d.copy.tagline, "Booking for music teachers");
+  assert.equal(d.listingUrl, "https://www.producthunt.com/products/slotwise", "kept when only the status changes");
+  assert.ok(d.submittedAt);
+  const o = (await api("GET", "/api/super/marketing/overview")).body;
+  assert.equal(o.totals.directoriesLive, 1);
+  const events = (await api("GET", "/api/super/marketing/events?kind=directory")).body;
+  assert.ok(events.some((e: any) => e.message === "Listing live on Product Hunt" && e.url === "https://www.producthunt.com/products/slotwise"));
 });
 
 test("switched on, the scheduler runs whatever is due", async () => {

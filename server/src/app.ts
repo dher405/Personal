@@ -15,6 +15,7 @@ import { paymentsRouter } from "./routes/payments.js";
 import { smsWebhookRouter } from "./routes/sms.js";
 import { adminCalendarRouter, calendarPublicRouter } from "./routes/calendars.js";
 import { marketingRouter } from "./marketing/router.js";
+import { publicBlogRouter } from "./marketing/blog.js";
 
 /**
  * Pages opened on another of the site's addresses (the old onrender.com one, or www/bare) move to the main address,
@@ -54,6 +55,8 @@ export function createApp() {
   app.use("/api/super/marketing", requireAuth, requireSuperAdmin, marketingRouter);
   app.use("/api/super", requireAuth, requireSuperAdmin, superRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
+  // Published articles (/blog), sitemap.xml and robots.txt, rendered on the server for search engines.
+  app.use(publicBlogRouter);
 
   // In a single-service deploy the API also serves the built website (web/dist).
   const webDist = fileURLToPath(new URL("../../web/dist", import.meta.url));

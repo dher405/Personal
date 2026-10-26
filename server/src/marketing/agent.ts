@@ -27,7 +27,7 @@ const textOf = (content: Anthropic.Beta.BetaContentBlock[]) =>
   content.map((b) => (b.type === "text" ? b.text : "")).join("");
 
 /** One request whose answer must match `schema` (structured outputs). Null if the model declined or ran out of room. */
-async function structured<T>(s: MarketingSettings, system: string, user: string, schema: Record<string, unknown>): Promise<T | null> {
+export async function structured<T>(s: MarketingSettings, system: string, user: string, schema: Record<string, unknown>): Promise<T | null> {
   const sdk = anthropic();
   const model = s.ai.model;
   const { effort, fallback } = await common(sdk, model, s.ai.effort);

@@ -64,9 +64,35 @@ CREATE TABLE IF NOT EXISTS marketing_events (
   message TEXT NOT NULL,
   url TEXT
 );
+CREATE TABLE IF NOT EXISTS marketing_directories (
+  id TEXT PRIMARY KEY,                 -- a key from DIRECTORIES in directories.ts
+  status TEXT NOT NULL DEFAULT 'todo', -- todo | drafting | ready | submitted | live | skipped
+  copy TEXT,                           -- JSON: the listing copy the agent wrote, field by field
+  listing_url TEXT,
+  notes TEXT NOT NULL DEFAULT '',
+  error TEXT,
+  submitted_at INTEGER,
+  updated_at INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS marketing_drafts_status ON marketing_drafts(status, community);
 CREATE INDEX IF NOT EXISTS marketing_events_kind ON marketing_events(kind, id);
 `);
+
+// Columns added after the first release, added in place so existing databases keep their data.
+const ADDED_COLUMNS: Record<string, Record<string, string>> = {
+  marketing_articles: {
+    description: "TEXT NOT NULL DEFAULT ''",
+    on_site: "INTEGER NOT NULL DEFAULT 0",   // 1 = published on this site at /blog/<slug>
+    published_at: "INTEGER",
+    updated_at: "INTEGER",
+  },
+};
+for (const [table, cols] of Object.entries(ADDED_COLUMNS)) {
+  const have = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c: any) => c.name));
+  for (const [col, decl] of Object.entries(cols)) if (!have.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
+}
+// A listing being written when the server restarted will never finish.
+run("UPDATE marketing_directories SET status = CASE WHEN copy IS NULL THEN 'todo' ELSE 'ready' END, error = 'interrupted by a server restart' WHERE status = 'drafting'");
 
 // A run that was in progress when the server restarted (every deploy) can never finish.
 run("UPDATE marketing_runs SET status = 'error', finished_at = started_at, summary = 'interrupted by a server restart' WHERE status = 'running'");

@@ -18,7 +18,8 @@ export function Marketing() {
         <NavLink to="/super/marketing/queue">{pending ? `Review queue (${pending})` : "Review queue"}</NavLink>
         <NavLink to="/super/marketing/posted">Posted log</NavLink>
         <NavLink to="/super/marketing/activity">Activity</NavLink>
-        <NavLink to="/super/marketing/articles">Blog drafts</NavLink>
+        <NavLink to="/super/marketing/articles">Blog</NavLink>
+        <NavLink to="/super/marketing/directories">Directories</NavLink>
         <NavLink to="/super/marketing/settings">Settings</NavLink>
       </nav>
       <Routes>
@@ -27,6 +28,7 @@ export function Marketing() {
         <Route path="posted" element={<Posted />} />
         <Route path="activity" element={<Activity />} />
         <Route path="articles" element={<Articles />} />
+        <Route path="directories" element={<Directories />} />
         <Route path="settings" element={<Settings />} />
       </Routes>
     </div>
@@ -99,6 +101,8 @@ function Dashboard() {
         <Stat n={t.removed} label="removed" tone={t.removed ? "bad" : undefined} />
         <Stat n={`${Math.round(t.promoRatio * 100)}%`} label={`of recent posts mention ${o.productName} (limit ${Math.round(t.maxPromoRatio * 100)}%)`} />
         <Stat n={t.threads} label="threads evaluated" to="/super/marketing/activity" />
+        <Stat n={t.articlesOnSite} label={`articles on your blog${t.articles ? ` (${t.articles} drafts waiting)` : ""}`} to="/super/marketing/articles" />
+        <Stat n={`${t.directoriesLive}/${t.directoriesTotal}`} label={`directory listings live (${t.directoriesSubmitted} submitted)`} to="/super/marketing/directories" />
       </div>
 
       <h2 style={{ margin: "8px 0 0" }}>Jobs</h2>
@@ -273,30 +277,197 @@ function PostedCard({ d, onSaved }: { d: any; onSaved: () => void }) {
 function Articles() {
   const { data, reload } = useApi<any[]>("/super/marketing/articles");
   if (!data) return <div className="muted">Loading…</div>;
-  if (!data.length) return <div className="card muted">No blog drafts yet. Use "Write a blog draft" on the dashboard (it needs at least one scan first).</div>;
-  return <div className="stack">{data.map((a) => <ArticleCard key={a.id} a={a} onSaved={reload} />)}</div>;
+  return (
+    <div className="stack">
+      <p className="small muted" style={{ margin: 0 }}>
+        Read and fact-check each draft, edit anything you like, then <b>Publish on my site</b> to put it live at <a href="/blog" target="_blank" rel="noreferrer">/blog</a>,
+        listed in your sitemap for search engines. You can unpublish or edit it any time.
+      </p>
+      {!data.length && <div className="card muted">No blog drafts yet. Use "Write a blog draft" on the dashboard (it needs at least one scan first).</div>}
+      {data.map((a) => <ArticleCard key={a.id} a={a} onSaved={reload} />)}
+    </div>
+  );
 }
 
+const ARTICLE_STATUS: Record<string, [string, string]> = { draft: ["Draft", ""], published: ["Published", "ok"], rejected: ["Rejected", "bad"] };
+
 function ArticleCard({ a, onSaved }: { a: any; onSaved: () => void }) {
-  const [url, setUrl] = useState(a.published_url ?? "");
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(a.title);
+  const [description, setDescription] = useState(a.description ?? "");
+  const [body, setBody] = useState(a.body);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [externalUrl, setExternalUrl] = useState(a.on_site ? "" : a.published_url ?? "");
   const [copied, setCopied] = useState(false);
   const action = useAction();
-  const set = (status: string) => action.run(async () => { await api(`/super/marketing/articles/${a.id}`, { method: "PATCH", body: { status, publishedUrl: url } }); onSaved(); });
+  const dirty = title !== a.title || description !== (a.description ?? "") || body !== a.body;
+  const [label, tone] = ARTICLE_STATUS[a.status] ?? [a.status, ""];
+
+  const save = () => action.run(async () => { await api(`/super/marketing/articles/${a.id}`, { method: "PATCH", body: { title, description, body } }); onSaved(); });
+  const status = (act: string) => action.run(async () => {
+    if (dirty) await api(`/super/marketing/articles/${a.id}`, { method: "PATCH", body: { title, description, body } });
+    await api(`/super/marketing/articles/${a.id}/status`, { body: { action: act, publishedUrl: act === "publish_external" ? externalUrl : undefined } });
+    onSaved();
+  });
+  const showPreview = () => action.run(async () => setPreview((await api<{ html: string }>("/super/marketing/articles/preview", { body: { body } })).html));
+
   return (
     <div className="card stack">
       <div className="row small muted" style={{ justifyContent: "space-between" }}>
-        <span className={`badge ${a.status === "published" ? "ok" : a.status === "rejected" ? "bad" : ""}`}>{a.status}</span>
-        <span>written {when(a.created_at)}{a.published_url && <> · live at <Ext href={a.published_url}>{a.published_url}</Ext></>}</span>
+        <span className="row" style={{ gap: 6 }}>
+          <span className={`badge ${tone}`}>{label}</span>
+          {a.status === "published" && <span className="badge">{a.on_site ? "on your site" : "elsewhere"}</span>}
+        </span>
+        <span>written {when(a.created_at)}{a.published_at ? ` · published ${when(a.published_at)}` : ""}</span>
       </div>
       <h3 style={{ margin: 0 }}>{a.title}</h3>
-      <details><summary className="small muted">Read draft (Markdown)</summary><pre className="small" style={{ whiteSpace: "pre-wrap" }}>{a.body}</pre></details>
-      <div className="row">
-        <button onClick={async () => { await navigator.clipboard.writeText(a.body).catch(() => {}); setCopied(true); }}>{copied ? "Copied ✓" : "Copy Markdown"}</button>
-        <input style={{ flex: 1, minWidth: 220 }} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Where you published it" />
-        <button className="primary" disabled={action.busy} onClick={() => set("published")}>Mark published</button>
-        <button disabled={action.busy} onClick={() => set("rejected")}>Reject</button>
-      </div>
+      {a.published_url && <div className="small"><b>Live at: </b><Ext href={a.published_url}>{a.published_url}</Ext></div>}
+      {description && !editing && <div className="small muted">{description}</div>}
+
+      {editing ? (
+        <div className="stack">
+          <label>Title<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+          <label>Search description<input value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} />
+            <span className="small muted">{description.length}/155 shown in Google results</span></label>
+          <label>Article (Markdown)<textarea rows={18} value={body} onChange={(e) => { setBody(e.target.value); setPreview(null); }} style={{ fontFamily: "ui-monospace, monospace", fontSize: ".85rem" }} /></label>
+        </div>
+      ) : (
+        <details onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && preview === null) showPreview(); }}>
+          <summary className="small muted">Read it as it will appear</summary>
+          {preview === null ? <div className="small muted">Loading…</div> : <div className="small" style={{ lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: preview }} />}
+        </details>
+      )}
+      {editing && preview !== null && <div className="card small" style={{ lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: preview }} />}
+
       {action.error && <div className="error">{action.error}</div>}
+      <div className="row">
+        {editing ? (
+          <>
+            <button className="primary" disabled={!dirty || action.busy} onClick={save}>Save changes</button>
+            <button disabled={action.busy} onClick={showPreview}>Preview</button>
+            <button onClick={() => { setEditing(false); setTitle(a.title); setDescription(a.description ?? ""); setBody(a.body); setPreview(null); }}>Done</button>
+          </>
+        ) : <button onClick={() => { setEditing(true); setPreview(null); }}>Edit</button>}
+        {a.status === "published" && a.on_site
+          ? <button disabled={action.busy} onClick={() => confirm("Take this article off your site?") && status("unpublish")}>Unpublish</button>
+          : <button className="primary" disabled={action.busy} onClick={() => status("publish_site")}>{dirty ? "Save & publish on my site" : "Publish on my site"}</button>}
+        <button onClick={async () => { await navigator.clipboard.writeText(body).catch(() => {}); setCopied(true); }}>{copied ? "Copied ✓" : "Copy Markdown"}</button>
+        {a.status !== "rejected" && !(a.status === "published" && a.on_site) && <button disabled={action.busy} onClick={() => status("reject")}>Reject</button>}
+      </div>
+      {!(a.status === "published" && a.on_site) && (
+        <details>
+          <summary className="small muted">Published it somewhere else instead?</summary>
+          <div className="row" style={{ marginTop: 8 }}>
+            <input style={{ flex: 1, minWidth: 220 }} value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://… where you published it" />
+            <button disabled={action.busy || !externalUrl} onClick={() => status("publish_external")}>Mark published there</button>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+// ---------- Directory kit ----------
+
+const DIR_STATUS: Record<string, [string, string]> = {
+  todo: ["To do", ""], drafting: ["Writing…", "warn"], ready: ["Copy ready", ""], submitted: ["Submitted", "warn"], live: ["Live", "ok"], skipped: ["Skipped", ""],
+};
+
+function Directories() {
+  const { data, reload } = useApi<any[]>("/super/marketing/directories");
+  useEffect(() => {
+    if (!data?.some((d) => d.status === "drafting")) return;
+    const t = setInterval(reload, 3000);
+    return () => clearInterval(t);
+  }, [data]);
+  if (!data) return <div className="muted">Loading…</div>;
+  const live = data.filter((d) => d.status === "live").length;
+  const submitted = data.filter((d) => ["submitted", "live"].includes(d.status)).length;
+  return (
+    <div className="stack">
+      <p className="small muted" style={{ margin: 0 }}>
+        Free listings where people shopping for booking software look. For each one: <b>Write listing copy</b>, sign up on the site,
+        paste the copy in with the Copy buttons, then mark it <b>Submitted</b> with your listing's link, and <b>Live</b> once it's approved.
+        {" "}{submitted} of {data.length} submitted · {live} live.
+      </p>
+      {data.map((d) => <DirectoryCard key={d.id} d={d} onChanged={reload} />)}
+    </div>
+  );
+}
+
+function DirectoryCard({ d, onChanged }: { d: any; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [copy, setCopy] = useState<Record<string, string> | null>(d.copy);
+  const [url, setUrl] = useState(d.listingUrl ?? "");
+  const [notes, setNotes] = useState(d.notes ?? "");
+  const [instruction, setInstruction] = useState("");
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const action = useAction();
+  useEffect(() => { setCopy(d.copy); }, [d.updatedAt]);
+  const [label, tone] = DIR_STATUS[d.status] ?? [d.status, ""];
+  const copyDirty = JSON.stringify(copy) !== JSON.stringify(d.copy);
+
+  const write = () => action.run(async () => { await api(`/super/marketing/directories/${d.id}/write`, { body: { instruction: instruction || undefined } }); setInstruction(""); setOpen(true); onChanged(); });
+  const patch = (body: object) => action.run(async () => { await api(`/super/marketing/directories/${d.id}`, { method: "PATCH", body }); onChanged(); });
+  const copyField = async (key: string, text: string) => { await navigator.clipboard.writeText(text).catch(() => {}); setCopiedKey(key); setTimeout(() => setCopiedKey(null), 1500); };
+
+  return (
+    <div className="card stack" style={d.status === "live" ? { borderLeft: "3px solid var(--ok)" } : undefined}>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h3 style={{ margin: 0 }}><Ext href={d.url}>{d.name}</Ext></h3>
+        <span className={`badge ${tone}`}>{label}</span>
+      </div>
+      <div className="small">{d.why}</div>
+      <div className="small muted"><b>How:</b> {d.howTo}</div>
+      {d.listingUrl && <div className="small"><b>Your listing: </b><Ext href={d.listingUrl}>{d.listingUrl}</Ext>{d.submittedAt ? <span className="muted"> · submitted {when(d.submittedAt)}</span> : null}</div>}
+      {d.error && <div className="error small">{d.error}</div>}
+      {action.error && <div className="error">{action.error}</div>}
+
+      <div className="row">
+        {d.status === "drafting" ? <span className="small muted">The agent is writing this listing…</span> : (
+          <>
+            <button className={copy ? "" : "primary"} disabled={action.busy} onClick={write}>{copy ? "Rewrite copy" : "Write listing copy"}</button>
+            {copy && <button onClick={() => setOpen(!open)}>{open ? "Hide copy" : "Show copy"}</button>}
+          </>
+        )}
+        {copy && d.status !== "drafting" && <input style={{ flex: 1, minWidth: 200 }} value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Optional instruction for a rewrite, e.g. focus on music teachers" />}
+      </div>
+
+      {open && copy && (
+        <div className="stack">
+          {d.fields.map((f: any) => {
+            const value = copy[f.key] ?? "";
+            return (
+              <label key={f.key}>
+                <span className="row" style={{ justifyContent: "space-between" }}>
+                  <span>{f.label} <span className="small muted">· {value.length}{f.aim ? ` / aim ~${f.aim}` : ""} characters</span></span>
+                  <button type="button" className="small" onClick={() => copyField(f.key, value)}>{copiedKey === f.key ? "Copied ✓" : "Copy"}</button>
+                </span>
+                <textarea rows={Math.min(14, Math.max(2, Math.ceil(value.length / 90) + value.split("\n").length - 1))} value={value}
+                  onChange={(e) => setCopy({ ...copy, [f.key]: e.target.value })} />
+                <span className="small muted">{f.help}</span>
+              </label>
+            );
+          })}
+          {copyDirty && <div><button className="primary" disabled={action.busy} onClick={() => patch({ copy })}>Save my edits</button></div>}
+        </div>
+      )}
+
+      <details>
+        <summary className="small muted">Track this listing</summary>
+        <div className="stack" style={{ marginTop: 8 }}>
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link to your listing (or your vendor dashboard)" />
+          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes: login email, review status, follow-ups…" />
+          <div className="row">
+            <button disabled={action.busy} onClick={() => patch({ status: "submitted", listingUrl: url, notes })}>Mark submitted</button>
+            <button className="primary" disabled={action.busy} onClick={() => patch({ status: "live", listingUrl: url, notes })}>Mark live</button>
+            <button disabled={action.busy} onClick={() => patch({ listingUrl: url, notes })}>Save</button>
+            {d.status !== "skipped"
+              ? <button disabled={action.busy} onClick={() => patch({ status: "skipped", notes })}>Skip this one</button>
+              : <button disabled={action.busy} onClick={() => patch({ status: copy ? "ready" : "todo" })}>Undo skip</button>}
+          </div>
+        </div>
+      </details>
     </div>
   );
 }
