@@ -65,6 +65,15 @@ export async function startPlanCheckout(business: Row, planId: string, user: Aut
 
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
+    // Checkout Studio settings (hosted page).
+    ui_mode: "hosted_page",
+    billing_address_collection: "auto",
+    phone_number_collection: { enabled: false },
+    allow_promotion_codes: false,
+    submit_type: "auto",
+    integration_identifier: "hosted_web_0001",
+    origin_context: "web",
+    payment_method_collection: "always",
     customer: business.platform_customer_id ?? undefined,
     customer_email: business.platform_customer_id ? undefined : user.email,
     line_items: [{ quantity: 1, price_data: planPriceData(plan.id) as Stripe.Checkout.SessionCreateParams.LineItem.PriceData }],
@@ -138,14 +147,14 @@ function planPriceData(planId: string) {
 export const SAAS_TAX_CODE = "txcd_10103001";
 
 /**
- * Checkout options when tax is on: Stripe Tax works out the tax from the billing address it collects, and
- * businesses can enter a tax ID (VAT, GST…) so it shows on their invoices.
+ * Checkout's tax options, from the "Charge tax" switch (Super admin → Settings → Stripe; off by default). When it's on,
+ * Stripe Tax works out the tax from the address Checkout collects, and businesses can enter a tax ID (VAT, GST…) so it
+ * shows on their invoices.
  */
 export function checkoutTax(hasCustomer: boolean): Partial<Stripe.Checkout.SessionCreateParams> {
-  if (!config.stripe.tax) return {};
+  if (!config.stripe.tax) return { automatic_tax: { enabled: false } };
   return {
     automatic_tax: { enabled: true },
-    billing_address_collection: "required",
     tax_id_collection: { enabled: true },
     ...(hasCustomer ? { customer_update: { address: "auto", name: "auto" } } : {}),
   };

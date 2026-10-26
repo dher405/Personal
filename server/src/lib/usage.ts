@@ -136,6 +136,14 @@ export async function buyPacks(business: Row, packId: string, packs: number, use
   }
   const session = await stripe().checkout.sessions.create({
     mode: "payment",
+    // Checkout Studio settings (hosted page).
+    ui_mode: "hosted_page",
+    billing_address_collection: "auto",
+    phone_number_collection: { enabled: false },
+    allow_promotion_codes: false,
+    submit_type: "auto",
+    integration_identifier: "hosted_web_0001",
+    origin_context: "web",
     customer: business.platform_customer_id ?? undefined,
     customer_email: business.platform_customer_id ? undefined : user.email,
     line_items: [{ quantity: packs, price_data: {

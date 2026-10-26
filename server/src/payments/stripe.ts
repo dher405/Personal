@@ -35,6 +35,14 @@ export const stripeProvider: PaymentProvider = {
     const session = await stripeFor(req.business).checkout.sessions.create(
       {
         mode: "payment",
+        // Checkout Studio settings (hosted page).
+        ui_mode: "hosted_page",
+        billing_address_collection: "auto",
+        phone_number_collection: { enabled: false },
+        allow_promotion_codes: false,
+        submit_type: "auto",
+        integration_identifier: "hosted_web_0001",
+        origin_context: "web",
         customer_email: req.customerEmail,
         line_items: [{
           quantity: 1,
@@ -47,7 +55,7 @@ export const stripeProvider: PaymentProvider = {
         }],
         payment_intent_data: { metadata: { paymentId: req.payment.id } },
         // The business can have Stripe Tax add sales tax on top of its prices (it sets this up in its own Stripe account).
-        ...(stripeTaxOn(req.business) ? { automatic_tax: { enabled: true }, billing_address_collection: "required" as const } : {}),
+        automatic_tax: { enabled: stripeTaxOn(req.business) },
         metadata: { paymentId: req.payment.id, businessId: req.business.id },
         success_url: `${req.successUrl}${req.successUrl.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: req.cancelUrl,

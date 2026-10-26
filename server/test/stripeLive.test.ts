@@ -32,10 +32,10 @@ test("moving from sandbox to live keys clears test-mode billing ids; test subscr
   assert.ok(one("SELECT 1 FROM audit_log WHERE action = 'billing.stripe_mode_changed'"));
 });
 
-test("with Charge tax on, checkouts use Stripe Tax and collect a billing address", () => {
-  assert.deepEqual(checkoutTax(false), {}, "off by default");
+test("with Charge tax on, checkouts use Stripe Tax and take tax IDs; off, they say so explicitly", () => {
+  assert.deepEqual(checkoutTax(false), { automatic_tax: { enabled: false } }, "off by default");
   saveSettings({ STRIPE_TAX: "on", STRIPE_TAX_BEHAVIOR: "inclusive" });
-  assert.deepEqual(checkoutTax(true), { automatic_tax: { enabled: true }, billing_address_collection: "required", tax_id_collection: { enabled: true }, customer_update: { address: "auto", name: "auto" } });
+  assert.deepEqual(checkoutTax(true), { automatic_tax: { enabled: true }, tax_id_collection: { enabled: true }, customer_update: { address: "auto", name: "auto" } });
   assert.equal(config.stripe.taxBehavior, "inclusive");
   assert.throws(() => saveSettings({ STRIPE_TAX: "maybe" }), /must be one of/);
 });
