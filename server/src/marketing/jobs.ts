@@ -95,10 +95,6 @@ async function blog(s: MarketingSettings, runId: number) {
   const questions = all<{ title: string; blog_topic: string }>(
     `SELECT t.title, d.blog_topic FROM marketing_drafts d JOIN marketing_threads t ON t.id = d.thread_id ORDER BY d.created_at DESC LIMIT 60`,
   ).map((q) => q.title + (q.blog_topic ? ` (suggested article: ${q.blog_topic})` : ""));
-  if (!questions.length) {
-    logEvent("skipped", "No blog draft yet: articles are based on questions people asked, so run a scan first", { level: "warn", runId });
-    return "skipped: no collected questions yet";
-  }
   const existing = all<{ title: string }>("SELECT title FROM marketing_articles").map((a) => a.title);
   for (const idea of await articleIdeas(s, questions, existing, 1)) {
     const slug = slugify(idea.title);

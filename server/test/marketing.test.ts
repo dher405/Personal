@@ -195,6 +195,15 @@ test("once too many posts mention the product, new drafts are pure help", async 
   assert.ok(drafts.length > 0 && drafts.every((d: any) => d.mentions_product === 0));
 });
 
+test("with no questions collected yet, blog drafts are planned from the audience's common searches", async () => {
+  const before = requests.length;
+  const { articleIdeas } = await import("../src/marketing/agent.js");
+  const { getSettings } = await import("../src/marketing/store.js");
+  const ideas = await articleIdeas(getSettings(), [], [], 1);
+  assert.equal(ideas.length, 1);
+  assert.match(requests[before].messages[0].content, /No questions have been collected yet/);
+});
+
 test("blog drafts are based on collected questions", async () => {
   await api("POST", "/api/super/marketing/run/blog");
   await waitForIdle();
@@ -202,7 +211,7 @@ test("blog drafts are based on collected questions", async () => {
   assert.equal(article.title, "How to choose a booking app for your salon");
   assert.match(article.body, /^---\ntitle:/);
   assert.equal(article.description, "How to pick booking software for a small salon.", "taken from the article's header");
-  const ideasRequest = requests.find((r) => r.output_config?.format?.schema?.properties?.ideas);
+  const ideasRequest = requests.findLast((r) => r.output_config?.format?.schema?.properties?.ideas);
   assert.match(ideasRequest.messages[0].content, /salon booking app for my salon/);
 });
 

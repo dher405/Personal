@@ -283,7 +283,7 @@ function Articles() {
         Read and fact-check each draft, edit anything you like, then <b>Publish on my site</b> to put it live at <a href="/blog" target="_blank" rel="noreferrer">/blog</a>,
         listed in your sitemap for search engines. You can unpublish or edit it any time.
       </p>
-      {!data.length && <div className="card muted">No blog drafts yet. Use "Write a blog draft" on the dashboard (it needs at least one scan first).</div>}
+      {!data.length && <div className="card muted">No blog drafts yet. Use "Write a blog draft" on the dashboard; it plans articles from questions the scans collect, or from common searches by your audience until there are some.</div>}
       {data.map((a) => <ArticleCard key={a.id} a={a} onSaved={reload} />)}
     </div>
   );
