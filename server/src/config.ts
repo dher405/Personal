@@ -73,6 +73,14 @@ export const config = {
       model: v("SUPPORT_AI_MODEL", "claude-opus-5-5"),
     };
   },
+  /** The marketing agent (Super admin → Marketing): its own key if one is saved, else the AI assistant's. */
+  get marketing() {
+    return {
+      apiKey: v("MARKETING_ANTHROPIC_API_KEY") || v("ANTHROPIC_API_KEY"),
+      redditClientId: v("REDDIT_CLIENT_ID"),
+      redditClientSecret: v("REDDIT_CLIENT_SECRET"),
+    };
+  },
   get stripe() {
     return {
       secretKey: v("STRIPE_SECRET_KEY"),

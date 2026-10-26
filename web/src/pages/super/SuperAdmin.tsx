@@ -4,6 +4,7 @@ import { AdminLayout } from "../admin/AdminLayout";
 import { SuperBusinessPanel } from "./SuperBusinessPanel";
 import { PlatformSettings } from "./PlatformSettings";
 import { SupportDesk } from "./SupportDesk";
+import { Marketing } from "./Marketing";
 import { DateTime } from "luxon";
 import { api, money } from "../../api";
 import { useAction, useApi } from "../../hooks";
@@ -32,7 +33,7 @@ export function SuperAdmin() {
     <div className="container">
       <h1>Platform admin</h1>
       <nav className="tabs">
-        {[["", "Overview"], ["businesses", "Businesses"], ["support", open ? `Support (${open})` : "Support"], ["users", "Users"], ["plans", "Plans & fees"], ["payments", "Payments"], ["settings", "Settings"], ["audit", "Audit log"]].map(([p, l]) => (
+        {[["", "Overview"], ["businesses", "Businesses"], ["support", open ? `Support (${open})` : "Support"], ["marketing", "Marketing"], ["users", "Users"], ["plans", "Plans & fees"], ["payments", "Payments"], ["settings", "Settings"], ["audit", "Audit log"]].map(([p, l]) => (
           <NavLink key={p} end={!p} to={p ? `/super/${p}` : "/super"}>{l}</NavLink>
         ))}
       </nav>
@@ -45,6 +46,7 @@ export function SuperAdmin() {
         <Route path="payments" element={<AllPayments />} />
         <Route path="settings" element={<PlatformSettings />} />
         <Route path="support/*" element={<SupportDesk />} />
+        <Route path="marketing/*" element={<Marketing />} />
         <Route path="audit" element={<Audit />} />
       </Routes>
     </div>

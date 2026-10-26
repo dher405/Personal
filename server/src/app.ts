@@ -14,6 +14,7 @@ import { superRouter } from "./routes/superadmin.js";
 import { paymentsRouter } from "./routes/payments.js";
 import { smsWebhookRouter } from "./routes/sms.js";
 import { adminCalendarRouter, calendarPublicRouter } from "./routes/calendars.js";
+import { marketingRouter } from "./marketing/router.js";
 
 /**
  * Pages opened on another of the site's addresses (the old onrender.com one, or www/bare) move to the main address,
@@ -50,6 +51,7 @@ export function createApp() {
   app.use("/api", calendarPublicRouter);
   app.use("/api/admin/:bid", requireAuth, adminRouter);
   app.use("/api/admin/:bid", requireAuth, adminCalendarRouter);
+  app.use("/api/super/marketing", requireAuth, requireSuperAdmin, marketingRouter);
   app.use("/api/super", requireAuth, requireSuperAdmin, superRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 

@@ -8,6 +8,7 @@ import { db } from "./db.js";
 import { storageStatus } from "./lib/storage.js";
 import { syncStripeMode } from "./lib/stripeMode.js";
 import { clearShowcaseBookings } from "./lib/showcase.js";
+import { startMarketingScheduler } from "./marketing/scheduler.js";
 
 const storage = storageStatus();
 console[storage.persistent === false ? "warn" : "log"](`${storage.persistent === false ? "WARNING: " : ""}${storage.message}`);
@@ -55,3 +56,6 @@ setInterval(() => {
 setInterval(() => {
   runReminders().catch((err) => console.error("reminder run failed", err));
 }, 60_000).unref();
+
+// Marketing agent (Super admin → Marketing): does nothing until it's switched on in its Settings.
+startMarketingScheduler();

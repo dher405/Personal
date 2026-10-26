@@ -77,6 +77,15 @@ export const SETTING_GROUPS: SettingGroup[] = [
     ],
   },
   {
+    id: "marketing", title: "Marketing agent",
+    description: "Finds people asking for booking/scheduling help on Reddit, Hacker News and Stack Exchange and drafts helpful replies for you to post yourself (Super admin → Marketing). It only reads those sites; it never posts. Hacker News and Stack Exchange need no keys. For Reddit, create a \"script\" app at reddit.com/prefs/apps and paste its ID and secret here.",
+    fields: [
+      { name: "MARKETING_ANTHROPIC_API_KEY", label: "Anthropic API key (optional)", secret: true, placeholder: "sk-ant-… (blank = use the AI assistant key)" },
+      { name: "REDDIT_CLIENT_ID", label: "Reddit app client ID", help: "The string under \"personal use script\" on reddit.com/prefs/apps" },
+      { name: "REDDIT_CLIENT_SECRET", label: "Reddit app secret", secret: true },
+    ],
+  },
+  {
     id: "google", title: "Google (sign-in and Calendar)",
     description: "One OAuth client powers \"Continue with Google\" and Google Calendar sync. console.cloud.google.com → APIs & Services → Credentials → OAuth client ID (Web application). Add both redirect URIs below.",
     fields: [
