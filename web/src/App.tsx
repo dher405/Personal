@@ -17,7 +17,7 @@ function TopBar() {
   return (
     <header className="topbar">
       <div className="container">
-        <Link to="/" className="brand">Slotwise</Link>
+        <Link to="/" className="brand"><img src="/logo.svg" alt="" width={28} height={28} />Slotwise</Link>
         <div className="spacer" />
         {session ? (
           <>

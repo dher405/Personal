@@ -7,7 +7,7 @@ export function PoweredBy({ from }: { from: string }) {
   return (
     <div className="powered-by">
       <a href={`/?ref=powered-by&from=${encodeURIComponent(from)}`} target="_blank" rel="noopener">
-        <span className="powered-by-mark" aria-hidden>S</span>
+        <img className="powered-by-mark" src="/logo.svg" alt="" width={18} height={18} />
         <span>Powered by <b>Slotwise</b>: free online booking for teachers &amp; pros</span>
       </a>
     </div>

@@ -279,7 +279,7 @@ export function Home() {
 
       <footer className="lp-footer">
         <div className="lp-wrap">
-          <span><b>Slotwise</b> · Online booking for independent pros</span>
+          <span className="brand-inline"><img src="/logo.svg" alt="" width={20} height={20} /><b>Slotwise</b> · Online booking for independent pros</span>
           <span className="lp-footer-links">
             <a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#find">Find a business</a>
             <Link to="/login?next=/admin">Business sign in</Link><Link to="/register?provider=1">Create your page</Link>

@@ -78,6 +78,9 @@ function page(opts: { title: string; description: string; path: string; body: st
 <meta property="og:description" content="${esc(opts.description)}">
 <meta property="og:url" content="${esc(url)}">
 <meta name="twitter:card" content="summary">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 ${siteStyles()}
 ${opts.jsonLd ? `<script type="application/ld+json">${JSON.stringify(opts.jsonLd).replace(/</g, "\\u003c")}</script>` : ""}
 <style>
@@ -97,7 +100,7 @@ ${opts.jsonLd ? `<script type="application/ld+json">${JSON.stringify(opts.jsonLd
 </style>
 </head>
 <body>
-<header class="topbar"><div class="container"><a href="/" class="brand">Slotwise</a><div class="spacer"></div><a href="/blog">Blog</a><a href="/register?provider=1" class="btn primary">List your business</a></div></header>
+<header class="topbar"><div class="container"><a href="/" class="brand"><img src="/logo.svg" alt="" width="28" height="28">Slotwise</a><div class="spacer"></div><a href="/blog">Blog</a><a href="/register?provider=1" class="btn primary">List your business</a></div></header>
 <main class="blog">${opts.body}</main>
 </body>
 </html>`;
